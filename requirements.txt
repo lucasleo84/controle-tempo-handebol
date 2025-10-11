@@ -2,3 +2,4 @@ streamlit-autorefresh
 streamlit
 pandas
 plotly
+pip install streamlit-autorefresh

@@ -124,6 +124,8 @@ st.markdown(
 #   CRONÔMETRO DIGITAL (automático)
 # ================================
 def tick_cronometro():
+    from streamlit_autorefresh import st_autorefresh
+    st_autorefresh(interval=1000, key="atualiza_cronometro")
     if not st.session_state["iniciado"]:
         return
     agora = time.time()

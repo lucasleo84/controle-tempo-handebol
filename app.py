@@ -62,12 +62,17 @@ if st.session_state["equipes"]["A"] and st.session_state["equipes"]["B"]:
             st.success("✅ Dados salvos em dados/saida_jogo.csv")
 
     # ===== Atualização do cronômetro =====
+    from streamlit_autorefresh import st_autorefresh
+
+    # Atualiza a cada segundo (1000 ms)
+    contador = st_autorefresh(interval=1000, limit=None, key="refresh")
+
     if st.session_state["iniciado"]:
         st.session_state["cronometro"] += 1
         atualizar_tempos(st.session_state)
         atualizar_penalidades(st.session_state)
-        time.sleep(1)
-        st.rerun()
+
+
 
     st.header(f"🕒 Tempo de jogo: {st.session_state['cronometro']} s")
 

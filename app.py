@@ -292,7 +292,7 @@ with tabs[2]:
         sai = c1.selectbox("🟥 Sai", [None]+jogando, key=f"sai_{equipe}")
         entra = c2.selectbox("🟩 Entra", [None]+banco, key=f"entra_{equipe}")
 
-        if c3.button("Substituir", disabled=(sai is None or entra is None)):
+       if c3.button("Substituir", key=f"substituir_{equipe}", disabled=(sai is None or entra is None)):
             ok, msg = efetuar_substituicao(st.session_state, equipe, [str(sai), str(entra)])
             if ok:
                 st.session_state[f"sai_{equipe}"] = None

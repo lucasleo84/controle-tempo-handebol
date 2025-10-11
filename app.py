@@ -236,52 +236,19 @@ def painel(equipe: str):
 # ABA 2 — DEFINIR TITULARES
 # =====================================================
 with abas[1]:
-    st.subheader("Definir Titulares")
-
+    with abas[1]:
+    st.header("Definir Titulares")
     for eq in ["A", "B"]:
-        st.markdown(f"### Equipe {eq}")
-
-        jogadores = st.session_state["equipes"][eq]
-        if not jogadores:
-            st.info(f"Cadastre primeiro a equipe {eq} na aba anterior.")
+        if len(st.session_state["equipes"][eq]) == 0:
+            st.info(f"Registre primeiro a equipe {eq}.")
             continue
-
-        numeros = [j["numero"] for j in jogadores]
-
-        # Mostra aviso se já estiver travado
-        if st.session_state["titulares_definidos"][eq]:
-            st.success("Titulares já registrados. Clique em **Corrigir** para editar.")
-            disabled = True
-        else:
-            disabled = False
-
-        # Multiselect com os números (caixinha “adicionando um a um”)
-        tit_key = f"titulares_sel_{eq}"
-        titulares_sel = st.multiselect(
-            "Selecione titulares (adicione um a um)",
-            options=numeros,
-            default=[j["numero"] for j in jogadores if j.get("estado") == "jogando"],
-            key=tit_key,
-            disabled=disabled
-        )
-
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button(f"Registrar titulares ({eq})", key=f"registrar_tit_{eq}", disabled=disabled):
-                if not titulares_sel:
-                    st.error("Selecione pelo menos 1 titular.")
-                else:
-                    # Define estados: titulares jogando, demais banco
-                    sel = set(map(int, titulares_sel))
-                    for j in st.session_state["equipes"][eq]:
-                        j["estado"] = "jogando" if j["numero"] in sel else "banco"
-                        j["elegivel"] = True  # garante elegibilidade
-                    st.session_state["titulares_definidos"][eq] = True
-                    st.success(f"Titulares da equipe {eq} registrados.")
-        with c2:
-            if st.button(f"Corrigir ({eq})", key=f"corrigir_tit_{eq}"):
-                st.session_state["titulares_definidos"][eq] = False
-                st.info("Edição de titulares liberada.")
+        titulares = st.multiselect(f"Titulares da equipe {eq}",
+                                   [j["numero"] for j in st.session_state["equipes"][eq]],
+                                   max_selections=7,
+                                   key=f"titulares_{eq}")
+        for j in st.session_state["equipes"][eq]:
+            j["estado"] = "jogando" if j["numero"] in titulares else "banco"
+        st.success(f"Títulos definidos para equipe {eq}.")
 
 # =====================================================
 # ⚙️ ABA 4 - VISUALIZAÇÃO

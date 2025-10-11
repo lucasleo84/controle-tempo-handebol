@@ -118,6 +118,23 @@ def atualizar_cronometro():
 atualizar_cronometro()
 threading.Thread(target=lambda: (time.sleep(1), st.experimental_rerun()), daemon=True).start()
 
+# ======================================
+#   CRONÔMETROS DE 2 MINUTOS (EXCLUSÕES)
+# ======================================
+def atualizar_penalidades_2min():
+    """Atualiza cronômetros de 2 minutos"""
+    ativos = []
+    for p in st.session_state["penalidades"]:
+        if p["tipo"] == "2min":
+            p["restante"] -= (time.time() - p["ultimo_tick"])
+            p["ultimo_tick"] = time.time()
+            if p["restante"] <= 0:
+                p["ativo"] = False
+                st.toast(f"⚠️ Jogador {p['jogador']} da equipe {p['equipe']} pode retornar!")
+                tocar_alarme()
+            else:
+                ativos.append(p)
+    st.session_state["penalidades"] = ativos
 
 # ======================================
 #   CABEÇALHO FIXO (CRONÔMETRO + BOTÕES)

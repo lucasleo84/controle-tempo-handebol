@@ -1,7 +1,7 @@
 # ================================
 #   CONTROLE DE JOGO - APP.PY
-#   Versão otimizada para Streamlit Cloud
-#   (com watchdog desativado e autorefresh seguro)
+#   Versão estável para Streamlit Cloud
+#   (sem loops, watchdog desativado, cronômetro fluido)
 # ================================
 
 import os
@@ -9,14 +9,15 @@ import os
 # --- Correções de ambiente ---
 os.environ["WATCHDOG_MAX_INSTANCES"] = "0"
 os.environ["STREAMLIT_WATCHDOG"] = "false"
+os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
 
 # --- Importações principais ---
 import streamlit as st
 import pandas as pd
-from streamlit_autorefresh import st_autorefresh
-
-# --- Importações locais (ajuste robusto de path) ---
+import time
 import sys
+
+# --- Configuração de caminho para pacotes locais ---
 sys.path.append(os.path.join(os.path.dirname(__file__), "utils"))
 
 from jogador import (
@@ -39,6 +40,7 @@ from jogador import (
 from registros import salvar_csv
 from sons import tocar_alarme
 
+
 # ================================
 #   CONFIGURAÇÃO INICIAL DO APP
 # ================================
@@ -52,6 +54,7 @@ if "iniciado" not in st.session_state:
     st.session_state.update({
         "iniciado": False,
         "cronometro": 0,
+        "ultimo_tick": time.time(),
         "equipes": {"A": [], "B": []},
         "penalidades": [],
         "slots_abertos": {"A": 0, "B": 0},
@@ -60,16 +63,12 @@ if "iniciado" not in st.session_state:
         "dark_mode": False
     })
 
+# Inicializa equipes
 inicializar_equipes_se_nao_existirem(st.session_state)
 
-# --- Autorefresh otimizado ---
-if st.session_state["iniciado"]:
-    st_autorefresh(interval=1000, limit=None, key="refresh_tick")
-else:
-    st_autorefresh(interval=0, key="refresh_pause")
 
 # ================================
-#   FUNÇÕES VISUAIS E ESTILO
+#   ESTILO E MODO NOTURNO
 # ================================
 def aplicar_css():
     dark = st.session_state["dark_mode"]
@@ -84,10 +83,6 @@ def aplicar_css():
             background-color: {bg};
             color: {fg};
         }}
-        .muted {{
-            color: {muted};
-        }}
-        /* TIMER STICKY */
         #sticky-timer {{
             position: sticky;
             top: 0;
@@ -111,6 +106,24 @@ def aplicar_css():
 
 aplicar_css()
 
+
+# ================================
+#   ATUALIZAÇÃO SEGURA DO CRONÔMETRO
+# ================================
+def atualizar_cronometro():
+    """Atualiza o cronômetro sem loops infinitos."""
+    if st.session_state["iniciado"]:
+        agora = time.time()
+        if agora - st.session_state["ultimo_tick"] >= 1:
+            st.session_state["cronometro"] += 1
+            st.session_state["ultimo_tick"] = agora
+            atualizar_tempos(st.session_state)
+            terminou_alguma = atualizar_penalidades(st.session_state)
+            if terminou_alguma:
+                st.toast("🔔 Penalidade encerrada!", icon="🔊")
+                tocar_alarme()
+
+
 # ================================
 #   ABAS PRINCIPAIS
 # ================================
@@ -131,13 +144,17 @@ with tabs[0]:
         with c:
             st.markdown(f"### Equipe {equipe}")
             nome = st.text_input(f"Nome da equipe {equipe}", key=f"nome_{equipe}")
-            qtd = st.number_input(f"Quantidade de jogadores {equipe}", min_value=1, max_value=14, value=len(st.session_state['equipes'][equipe]) or 7, key=f"qtd_{equipe}")
+            qtd = st.number_input(f"Quantidade de jogadores {equipe}", min_value=1, max_value=14,
+                                  value=len(st.session_state['equipes'][equipe]) or 7, key=f"qtd_{equipe}")
 
             nums = []
             cols = st.columns(7)
             for i in range(int(qtd)):
                 with cols[i % 7]:
-                    val = st.number_input(f"#{i+1}", min_value=0, max_value=999, value=st.session_state['equipes'][equipe][i]['numero'] if i < len(st.session_state['equipes'][equipe]) else (i+1), key=f"num_{equipe}_{i}")
+                    val = st.number_input(f"#{i+1}", min_value=0, max_value=999,
+                                          value=st.session_state['equipes'][equipe][i]['numero']
+                                          if i < len(st.session_state['equipes'][equipe]) else (i+1),
+                                          key=f"num_{equipe}_{i}")
                     nums.append(int(val))
 
             if st.button(f"Salvar equipe {equipe}"):
@@ -157,10 +174,13 @@ with tabs[0]:
                 st.session_state[f"nome_{equipe}_salvo"] = nome
                 st.success(f"Equipe {equipe} salva!")
 
+
 # ==============================================================
 # ABA 2 — CONTROLE DO JOGO
 # ==============================================================
 with tabs[1]:
+    atualizar_cronometro()
+
     st.markdown(
         f"""
         <div id="sticky-timer">
@@ -170,11 +190,11 @@ with tabs[1]:
         unsafe_allow_html=True
     )
 
-    # Botões principais
     ctop1, ctop2, ctop3, ctop4, ctop5 = st.columns([1, 1, 1, 1, 2])
     with ctop1:
         if st.button("▶️ Iniciar"):
             st.session_state["iniciado"] = True
+            st.session_state["ultimo_tick"] = time.time()
     with ctop2:
         if st.button("⏸️ Pausar"):
             st.session_state["iniciado"] = False
@@ -183,12 +203,14 @@ with tabs[1]:
             st.session_state["cronometro"] = 0
             for eq in ["A", "B"]:
                 for j in st.session_state["equipes"][eq]:
-                    j["tempo_jogado"] = 0
-                    j["tempo_banco"] = 0
-                    j["tempo_penalidade"] = 0
-                    j["exclusoes"] = 0
-                    j["elegivel"] = True
-                    j["expulso"] = False
+                    j.update({
+                        "tempo_jogado": 0,
+                        "tempo_banco": 0,
+                        "tempo_penalidade": 0,
+                        "exclusoes": 0,
+                        "elegivel": True,
+                        "expulso": False
+                    })
                 st.session_state["penalidades"] = []
                 st.session_state["slots_abertos"][eq] = 0
                 st.session_state["titulares_definidos"][eq] = False
@@ -201,23 +223,18 @@ with tabs[1]:
         st.toggle("Modo noturno", key="dark_mode", value=st.session_state["dark_mode"])
         aplicar_css()
 
-    # Atualização de tempo e penalidades
-    if st.session_state["iniciado"]:
-        st.session_state["cronometro"] += 1
-        atualizar_tempos(st.session_state)
-        terminou_alguma = atualizar_penalidades(st.session_state)
-        if terminou_alguma:
-            st.toast("🔔 Penalidade encerrada!", icon="🔊")
-            tocar_alarme()
-
-    # Definir titulares
     st.markdown("### Definir Titulares")
     infoA, infoB = st.columns(2)
     for equipe, box in zip(["A", "B"], [infoA, infoB]):
         with box:
             st.markdown(f"**Equipe {equipe}** — {st.session_state.get(f'nome_{equipe}_salvo', '') or 'Sem nome'}")
             nums = [j["numero"] for j in st.session_state["equipes"][equipe]]
-            titulares_sel = st.multiselect("Selecione titulares (obrigatório)", options=nums, disabled=st.session_state["titulares_definidos"][equipe], key=f"tit_{equipe}")
+            titulares_sel = st.multiselect(
+                "Selecione titulares (obrigatório)",
+                options=nums,
+                disabled=st.session_state["titulares_definidos"][equipe],
+                key=f"tit_{equipe}"
+            )
             cta1, cta2 = st.columns(2)
             with cta1:
                 if st.button(f"Confirmar Titulares {equipe}", disabled=st.session_state["titulares_definidos"][equipe]):
@@ -247,11 +264,16 @@ with tabs[1]:
                 st.info("Defina titulares para atribuir funções.")
             else:
                 for j in titulares:
-                    val = st.selectbox(f"#{j['numero']}", options=["(sem função)"] + posicoes,
-                        index=0 if j["numero"] not in st.session_state["funcoes"][equipe] else (["(sem função)"] + posicoes).index(st.session_state["funcoes"][equipe][j["numero"]]),
+                    val = st.selectbox(
+                        f"#{j['numero']}",
+                        options=["(sem função)"] + posicoes,
+                        index=0 if j["numero"] not in st.session_state["funcoes"][equipe]
+                        else (["(sem função)"] + posicoes).index(
+                            st.session_state["funcoes"][equipe][j["numero"]]),
                         key=f"func_{equipe}_{j['numero']}"
                     )
-                    set_posicao_titular(st.session_state, equipe, j["numero"], None if val == "(sem função)" else val)
+                    set_posicao_titular(st.session_state, equipe, j["numero"],
+                                        None if val == "(sem função)" else val)
 
     st.divider()
 
@@ -271,28 +293,25 @@ with tabs[1]:
             a1, a2, a3, a4 = st.columns(4)
             with a1:
                 if st.button("Substituir", key=f"btn_sub_{equipe}"):
-                    from jogador import efetuar_substituicao
                     ok, msg = efetuar_substituicao(st.session_state, equipe, sub_sel)
-                    if ok: st.success(msg)
-                    else: st.error(msg)
+                    st.success(msg) if ok else st.error(msg)
             with a2:
                 if st.button("2 Minutos", key=f"btn_2min_{equipe}"):
-                    from jogador import aplicar_exclusao_2min
                     ok, msg, terminou3 = aplicar_exclusao_2min(st.session_state, equipe, um_sel)
-                    if ok: st.warning(msg)
-                    else: st.error(msg)
+                    if ok:
+                        st.warning(msg)
+                        if terminou3:
+                            st.error("Jogador tornou-se inelegível (3 exclusões).")
+                    else:
+                        st.error(msg)
             with a3:
                 if st.button("Expulsão", key=f"btn_exp_{equipe}"):
-                    from jogador import aplicar_expulsao
                     ok, msg = aplicar_expulsao(st.session_state, equipe, um_sel)
-                    if ok: st.error(msg)
-                    else: st.error(msg)
+                    st.error(msg) if ok else st.error(msg)
             with a4:
                 if st.button("Completou", key=f"btn_comp_{equipe}"):
-                    from jogador import completar_substituicao
                     ok, msg = completar_substituicao(st.session_state, equipe, um_sel)
-                    if ok: st.success(msg)
-                    else: st.error(msg)
+                    st.success(msg) if ok else st.error(msg)
 
     st.divider()
     st.markdown("#### Penalidades ativas")
@@ -301,6 +320,7 @@ with tabs[1]:
         st.dataframe(pen_df, use_container_width=True)
     else:
         st.info("Nenhuma penalidade ativa.")
+
 
 # ==============================================================
 # ABA 3 — VISUALIZAÇÃO DE DADOS

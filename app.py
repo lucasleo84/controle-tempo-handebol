@@ -1,3 +1,6 @@
+import os
+os.environ["WATCHDOG_MAX_INSTANCES"] = "false"
+
 import os, sys
 print("📁 Diretório atual:", os.getcwd())
 print("📂 Conteúdo:", os.listdir("."))

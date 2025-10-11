@@ -124,8 +124,23 @@ st.markdown(
 #   CRONÔMETRO DIGITAL (automático)
 # ================================
 def tick_cronometro():
-    from streamlit_autorefresh import st_autorefresh
-    st_autorefresh(interval=1000, key="atualiza_cronometro")
+    # Atualização suave e precisa do cronômetro
+    import datetime
+    
+    if "last_render" not in st.session_state:
+        st.session_state["last_render"] = time.time()
+    
+    # Cada refresh: atualiza diferença desde o último render, mesmo que a tela atrase
+    agora = time.time()
+    delta = agora - st.session_state["last_render"]
+    st.session_state["last_render"] = agora
+    
+    if st.session_state["iniciado"]:
+        st.session_state["cronometro"] += delta
+        atualizar_tempos(st.session_state)
+        if atualizar_penalidades(st.session_state):
+            st.toast("🔔 Penalidade encerrada!", icon="🔊")
+            tocar_alarme()
     
     if not st.session_state["iniciado"]:
         return

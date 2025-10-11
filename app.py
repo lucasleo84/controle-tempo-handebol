@@ -1,5 +1,5 @@
 # ======================================
-# CONTROLE DE JOGO - APP_v8.3
+# CONTROLE DE JOGO - APP_v8.5
 # ======================================
 
 import os
@@ -15,7 +15,6 @@ from jogador import (
     inicializar_equipes_se_nao_existirem,
     formato_mmss,
     atualizar_tempos,
-    atualizar_penalidades,
     definir_titulares,
     corrigir_titulares,
     set_posicao_titular,
@@ -99,7 +98,7 @@ st.markdown(
 )
 
 # ======================================
-#   ATUALIZAÇÃO FLUIDA DO CRONÔMETRO
+#   CRONÔMETRO PRINCIPAL FLUIDO
 # ======================================
 def atualizar_cronometro():
     """Atualiza o cronômetro de forma precisa"""
@@ -110,22 +109,21 @@ def atualizar_cronometro():
     if st.session_state["iniciado"]:
         st.session_state["cronometro"] += delta
         atualizar_tempos(st.session_state)
-        if atualizar_penalidades(st.session_state):
-            st.toast("🔔 Penalidade encerrada!", icon="🔊")
-            tocar_alarme()
+        atualizar_penalidades_2min()
 
-# executa a atualização e agenda novo ciclo
-atualizar_cronometro()
-threading.Thread(target=lambda: (time.sleep(1), st.experimental_rerun()), daemon=True).start()
+# thread não bloqueante para refresh
+def agendar_refresh():
+    time.sleep(1)
+    st.experimental_rerun()
+threading.Thread(target=agendar_refresh, daemon=True).start()
 
 # ======================================
-#   CRONÔMETROS DE 2 MINUTOS (EXCLUSÕES)
+#   CRONÔMETROS DE 2 MINUTOS
 # ======================================
 def atualizar_penalidades_2min():
-    """Atualiza cronômetros de 2 minutos"""
     ativos = []
-    for p in st.session_state["penalidades"]:
-        if p["tipo"] == "2min":
+    for p in st.session_state.get("penalidades", []):
+        if p.get("tipo") == "2min" and p.get("ativo", True):
             p["restante"] -= (time.time() - p["ultimo_tick"])
             p["ultimo_tick"] = time.time()
             if p["restante"] <= 0:
@@ -137,40 +135,41 @@ def atualizar_penalidades_2min():
     st.session_state["penalidades"] = ativos
 
 # ======================================
-#   CABEÇALHO FIXO (CRONÔMETRO + BOTÕES)
+#   CABEÇALHO FIXO
 # ======================================
-with st.container():
-    st.markdown(
-        f"""
-        <div id="header-fixed">
-            <div class="digital">⏱ {formato_mmss(st.session_state['cronometro'])}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    c1, c2, c3, c4 = st.columns([1,1,1,1])
-    with c1:
-        if st.button("▶️ Iniciar"):
-            st.session_state["iniciado"] = True
-            st.session_state["ultimo_tick"] = time.time()
-    with c2:
-        if st.button("⏸️ Pausar"):
-            st.session_state["iniciado"] = False
-    with c3:
-        if st.button("🔁 Zerar"):
-            st.session_state["iniciado"] = False
-            st.session_state["cronometro"] = 0.0
-            for eq in ["A","B"]:
-                for j in st.session_state["equipes"][eq]:
-                    j.update({
-                        "tempo_jogado": 0, "tempo_banco": 0, "tempo_penalidade": 0,
-                        "exclusoes": 0, "elegivel": True, "expulso": False, "estado":"banco"
-                    })
-            st.session_state["penalidades"] = []
-    with c4:
-        if st.button("💾 Salvar CSV"):
-            salvar_csv(st.session_state)
-            st.success("Dados salvos em dados/saida_jogo.csv")
+atualizar_cronometro()
+st.markdown(
+    f"""
+    <div id="header-fixed">
+        <div class="digital">⏱ {formato_mmss(st.session_state['cronometro'])}</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+c1, c2, c3, c4 = st.columns([1,1,1,1])
+with c1:
+    if st.button("▶️ Iniciar", key="start"):
+        st.session_state["iniciado"] = True
+        st.session_state["ultimo_tick"] = time.time()
+with c2:
+    if st.button("⏸️ Pausar", key="pause"):
+        st.session_state["iniciado"] = False
+with c3:
+    if st.button("🔁 Zerar", key="reset"):
+        st.session_state["iniciado"] = False
+        st.session_state["cronometro"] = 0.0
+        for eq in ["A","B"]:
+            for j in st.session_state["equipes"][eq]:
+                j.update({
+                    "tempo_jogado": 0, "tempo_banco": 0, "tempo_penalidade": 0,
+                    "exclusoes": 0, "elegivel": True, "expulso": False, "estado":"banco"
+                })
+        st.session_state["penalidades"] = []
+with c4:
+    if st.button("💾 Salvar CSV", key="save"):
+        salvar_csv(st.session_state)
+        st.success("Dados salvos em dados/saida_jogo.csv")
 
 # ======================================
 #   PALETA CMYK
@@ -213,7 +212,6 @@ with tabs[0]:
                 key=f"cor_nome_{equipe}"
             )
             st.session_state["cores"][equipe] = PALETA[cor_nome]
-
             nome = st.text_input(f"Nome da equipe {equipe}", key=f"nome_{equipe}")
             qtd = st.number_input(
                 f"Quantidade de jogadores {equipe}",
@@ -232,7 +230,7 @@ with tabs[0]:
                         key=f"num_{equipe}_{i}"
                     )
                     nums.append(int(val))
-            if st.button(f"Salvar equipe {equipe}"):
+            if st.button(f"Salvar equipe {equipe}", key=f"save_team_{equipe}"):
                 nova = []
                 for n in nums:
                     nova.append({
@@ -260,16 +258,16 @@ with tabs[1]:
             )
             c1, c2 = st.columns(2)
             with c1:
-                if st.button(f"Confirmar titulares {equipe}", disabled=st.session_state["titulares_definidos"][equipe]):
+                if st.button(f"Confirmar titulares {equipe}", key=f"conf_tit_{equipe}", disabled=st.session_state["titulares_definidos"][equipe]):
                     definir_titulares(st.session_state, equipe, titulares_sel)
                     st.success("Titulares definidos.")
             with c2:
-                if st.button(f"Corrigir {equipe}"):
+                if st.button(f"Corrigir {equipe}", key=f"corr_tit_{equipe}"):
                     corrigir_titulares(st.session_state, equipe)
                     st.info("Titulares desbloqueados.")
 
 # ==============================================================
-# ABA 3 – CONTROLE DE JOGO
+# ABA 3 – CONTROLE DO JOGO
 # ==============================================================
 with tabs[2]:
     st.subheader("Controle do Jogo")
@@ -284,15 +282,13 @@ with tabs[2]:
             f"<span class='side-head' style='background:{st.session_state['cores'][equipe]};'>Equipe {equipe}</span>",
             unsafe_allow_html=True
         )
-
         jogando = [j["numero"] for j in st.session_state["equipes"][equipe] if j["estado"]=="jogando" and j["elegivel"]]
         banco   = [j["numero"] for j in st.session_state["equipes"][equipe] if j["estado"]=="banco" and j["elegivel"]]
 
         c1, c2, c3 = st.columns([1,1,1.1])
         sai = c1.selectbox("🟥 Sai", [None]+jogando, key=f"sai_{equipe}")
         entra = c2.selectbox("🟩 Entra", [None]+banco, key=f"entra_{equipe}")
-
-       if c3.button("Substituir", key=f"substituir_{equipe}", disabled=(sai is None or entra is None)):
+        if c3.button("Substituir", key=f"substituir_{equipe}", disabled=(sai is None or entra is None)):
             ok, msg = efetuar_substituicao(st.session_state, equipe, [str(sai), str(entra)])
             if ok:
                 st.session_state[f"sai_{equipe}"] = None
@@ -301,13 +297,28 @@ with tabs[2]:
                 st.success("Substituição feita.")
             else:
                 st.error(msg)
-
         now = time.time()
         if now - st.session_state["sub_msg_time"][equipe] < 3:
             st.markdown(
                 f"<span class='chip chip-sai'>Sai {sai}</span> <span class='chip chip-entra'>Entra {entra}</span>",
                 unsafe_allow_html=True
             )
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+        unico = st.selectbox("Jogador (2min / Expulsão / Completou)", [None]+sorted(jogando+banco), key=f"unico_{equipe}")
+        b1,b2,b3 = st.columns(3)
+        if b1.button("2 Minutos", key=f"dois_min_{equipe}", disabled=(unico is None)):
+            ok,msg,terminou3=aplicar_exclusao_2min(st.session_state,equipe,str(unico))
+            if ok:
+                st.warning(msg)
+                if terminou3: st.error("Jogador inelegível (3 exclusões).")
+            else: st.error(msg)
+        if b2.button("Expulsão", key=f"expulsao_{equipe}", disabled=(unico is None)):
+            ok,msg=aplicar_expulsao(st.session_state,equipe,str(unico))
+            st.error(msg) if ok else st.error(msg)
+        if b3.button("Completou", key=f"completou_{equipe}", disabled=(unico is None)):
+            ok,msg=completar_substituicao(st.session_state,equipe,str(unico))
+            st.success(msg) if ok else st.error(msg)
 
     with col_esq: painel(lados[0])
     with col_dir: painel(lados[1])
@@ -324,3 +335,13 @@ with tabs[3]:
             st.info("Sem dados.")
             continue
         st.dataframe(df[["numero","estado","exclusoes","elegivel"]], use_container_width=True)
+
+    ativos = [p for p in st.session_state.get("penalidades", []) if p.get("tipo")=="2min" and p.get("ativo",True)]
+    if ativos:
+        st.markdown("### Penalidades (2 minutos)")
+        for p in ativos:
+            st.markdown(
+                f"<div style='background:#500;padding:8px;border-radius:6px;color:#fff;'>"
+                f"⏳ Jogador #{p['jogador']} ({p['equipe']}) - {formato_mmss(p['restante'])} restantes</div>",
+                unsafe_allow_html=True
+            )

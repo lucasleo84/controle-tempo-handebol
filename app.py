@@ -128,13 +128,13 @@ def iniciar_jogo():
     if not st.session_state["iniciado"]:
         st.session_state["iniciado"] = True
         st.session_state["ultimo_tick"] = time.time()
-        st.experimental_rerun()
+        st.rerun()  # ✅ substitui o antigo st.experimental_rerun()
 
 def pausar_jogo():
     if st.session_state["iniciado"]:
         st.session_state["cronometro"] = tempo_logico_atual()
         st.session_state["iniciado"] = False
-        st.experimental_rerun()
+        st.rerun()
 
 def zerar_jogo():
     st.session_state["iniciado"] = False
@@ -143,12 +143,16 @@ def zerar_jogo():
     for eq in ["A", "B"]:
         for j in st.session_state["equipes"][eq]:
             j.update({
-                "tempo_jogado": 0, "tempo_banco": 0, "tempo_penalidade": 0,
-                "exclusoes": 0, "elegivel": True, "expulso": False, "estado": "banco"
+                "tempo_jogado": 0,
+                "tempo_banco": 0,
+                "tempo_penalidade": 0,
+                "exclusoes": 0,
+                "elegivel": True,
+                "expulso": False,
+                "estado": "banco",
             })
     st.session_state["penalidades"] = []
-    st.experimental_rerun()
-
+    st.rerun()
 
 # ======================================
 # CRONÔMETRO VISUAL (JS)

@@ -329,58 +329,66 @@ with tabs[2]:
     col_esq, col_dir = st.columns(2)
 
     def painel(equipe: str):
+    st.markdown(
+        f"<span class='side-head' style='background:{st.session_state['cores'][equipe]};'>Equipe {equipe}</span>",
+        unsafe_allow_html=True
+    )
+
+    # Listas de elegibilidade
+    jogando = [j["numero"] for j in st.session_state["equipes"][equipe] if j["estado"] == "jogando" and j["elegivel"]]
+    banco = [j["numero"] for j in st.session_state["equipes"][equipe] if j["estado"] == "banco" and j["elegivel"]]
+
+    # Variáveis locais (para evitar StreamlitAPIException)
+    sai_key = f"sai_{equipe}"
+    entra_key = f"entra_{equipe}"
+    sai_val = st.session_state.get(sai_key)
+    entra_val = st.session_state.get(entra_key)
+
+    c1, c2, c3 = st.columns([1, 1, 1.1])
+    sai = c1.selectbox("🟥 Sai (jogando)", [None] + sorted(jogando), key=sai_key)
+    entra = c2.selectbox("🟩 Entra (banco)", [None] + sorted(banco), key=entra_key)
+
+    # botão Substituir
+    if c3.button("Substituir", key=f"substituir_{equipe}", disabled=(sai is None or entra is None or sai == entra)):
+        ok, msg = efetuar_substituicao(st.session_state, equipe, [str(sai), str(entra)])
+        if ok:
+            # em vez de reatribuir, usamos update() seguro
+            st.session_state.update({sai_key: None, entra_key: None})
+            st.session_state["sub_msg_time"][equipe] = time.time()
+            st.success(msg)
+        else:
+            st.error(msg)
+
+    # mensagem visual de substituição (expira em 3 s)
+    now = time.time()
+    if now - st.session_state["sub_msg_time"][equipe] < 3:
+        s = "—" if sai is None else str(sai)
+        e = "—" if entra is None else str(entra)
         st.markdown(
-            f"<span class='side-head' style='background:{st.session_state['cores'][equipe]};'>Equipe {equipe}</span>",
+            f"<span class='chip chip-sai'>Sai {s}</span> <span class='chip chip-entra'>Entra {e}</span>",
             unsafe_allow_html=True
         )
-        jogando = [j["numero"] for j in st.session_state["equipes"][equipe] if j["estado"]=="jogando" and j["elegivel"]]
-        banco   = [j["numero"] for j in st.session_state["equipes"][equipe] if j["estado"]=="banco"   and j["elegivel"]]
 
-        c1, c2, c3 = st.columns([1,1,1.1])
-        sai   = c1.selectbox("🟥 Sai (jogando)", [None]+sorted(jogando), key=f"sai_{equipe}")
-        entra = c2.selectbox("🟩 Entra (banco)",  [None]+sorted(banco),   key=f"entra_{equipe}")
-        if c3.button("Substituir", key=f"substituir_{equipe}", disabled=(sai is None or entra is None or sai==entra)):
-            ok, msg = efetuar_substituicao(st.session_state, equipe, [str(sai), str(entra)])
-            if ok:
-                st.session_state[f"sai_{equipe}"] = None
-                st.session_state[f"entra_{equipe}"] = None
-                st.session_state["sub_msg_time"][equipe] = time.time()
-                st.success("Substituição feita.")
-            else:
-                st.error(msg)
+    st.markdown("<hr>", unsafe_allow_html=True)
 
-        now = time.time()
-        if now - st.session_state["sub_msg_time"][equipe] < 3:
-            s = "—" if sai is None else str(sai)
-            e = "—" if entra is None else str(entra)
-            st.markdown(
-                f"<span class='chip chip-sai'>Sai {s}</span> <span class='chip chip-entra'>Entra {e}</span>",
-                unsafe_allow_html=True
-            )
-
-        st.markdown("<hr>", unsafe_allow_html=True)
-        unico = st.selectbox("Jogador (2min / Expulsão / Completou)", [None]+sorted(jogando+banco), key=f"unico_{equipe}")
-        b1, b2, b3 = st.columns(3)
-        if b1.button("2 Minutos", key=f"dois_min_{equipe}", disabled=(unico is None)):
-            ok, msg, terminou3 = aplicar_exclusao_2min(st.session_state, equipe, str(unico))
-            if ok:
-                st.warning(msg)
-                if terminou3:
-                    st.error("Jogador inelegível (3 exclusões).")
-            else:
-                st.error(msg)
-        if b2.button("Expulsão", key=f"expulsao_{equipe}", disabled=(unico is None)):
-            ok, msg = aplicar_expulsao(st.session_state, equipe, str(unico))
-            st.error(msg) if ok else st.error(msg)
-        if b3.button("Completou", key=f"completou_{equipe}", disabled=(unico is None)):
-            ok, msg = completar_substituicao(st.session_state, equipe, str(unico))
-            st.success(msg) if ok else st.error(msg)
-
-    with col_esq:
-        painel(lados[0])
-    with col_dir:
-        painel(lados[1])
-
+    # painel de penalidades
+    unico_key = f"unico_{equipe}"
+    unico = st.selectbox("Jogador (2min / Expulsão / Completou)", [None] + sorted(jogando + banco), key=unico_key)
+    b1, b2, b3 = st.columns(3)
+    if b1.button("2 Minutos", key=f"dois_min_{equipe}", disabled=(unico is None)):
+        ok, msg, terminou3 = aplicar_exclusao_2min(st.session_state, equipe, str(unico))
+        if ok:
+            st.warning(msg)
+            if terminou3:
+                st.error("Jogador inelegível (3 exclusões).")
+        else:
+            st.error(msg)
+    if b2.button("Expulsão", key=f"expulsao_{equipe}", disabled=(unico is None)):
+        ok, msg = aplicar_expulsao(st.session_state, equipe, str(unico))
+        st.error(msg) if not ok else st.warning(msg)
+    if b3.button("Completou", key=f"completou_{equipe}", disabled=(unico is None)):
+        ok, msg = completar_substituicao(st.session_state, equipe, str(unico))
+        st.success(msg) if ok else st.error(msg)
 
 # ==============================================================
 # ABA 4 — VISUALIZAÇÃO

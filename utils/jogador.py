@@ -19,8 +19,8 @@ def inicializar_equipes_se_nao_existirem(state):
             } for i in range(7)]
 
 def formato_mmss(segundos):
-    m = segundos // 60
-    s = segundos % 60
+    segundos = int(segundos)
+    m, s = divmod(segundos, 60)
     return f"{m:02d}:{s:02d}"
 
 def atualizar_tempos(state):

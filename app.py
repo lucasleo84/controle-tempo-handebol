@@ -99,43 +99,74 @@ st.title("Controle de Tempo - Handebol")
 
 abas = st.tabs(["Configuração da Equipe", "Definir Titulares", "Controle do Jogo", "Visualização de Dados"])
 
+# =====================================================
+# ABA 1 — CONFIGURAÇÃO DA EQUIPE
+# =====================================================
 with abas[0]:
-    st.header("Configuração da Equipe")
+    st.subheader("Configuração da Equipe")
 
-    for eq in ["A", "B"]:
-        st.subheader(f"Equipe {eq}")
-        col1, col2 = st.columns([1.5, 1])
-        with col1:
+    def ensure_num_list(team_key: str, qtd: int):
+        """Garante que existe uma lista editável de números por equipe e com o tamanho 'qtd'."""
+        list_key = f"numeros_{team_key}"
+        if list_key not in st.session_state:
+            st.session_state[list_key] = [i + 1 for i in range(qtd)]
+        else:
+            nums = st.session_state[list_key]
+            # Ajusta tamanho se usuário mudar 'qtd'
+            if len(nums) < qtd:
+                nums.extend(list(range(len(nums) + 1, qtd + 1)))
+            elif len(nums) > qtd:
+                st.session_state[list_key] = nums[:qtd]
+
+    colA, colB = st.columns(2)
+
+    for eq, col in zip(["A", "B"], [colA, colB]):
+        with col:
+            st.markdown(f"### Equipe {eq}")
+
+            # Nome e quantidade
             nome = st.text_input(f"Nome da equipe {eq}", key=f"nome_{eq}")
-        with col2:
-            qtd = st.number_input(f"Quantidade de jogadores", min_value=1, max_value=20, step=1, key=f"qtd_{eq}")
-
-        if f"numeros_{eq}" not in st.session_state:
-            st.session_state[f"numeros_{eq}"] = [i + 1 for i in range(int(qtd))]
-
-        st.markdown("### Números das camisetas:")
-        cols = st.columns(min(5, len(st.session_state[f"numeros_{eq}"])))
-        for i, num in enumerate(st.session_state[f"numeros_{eq}"]):
-            col = cols[i % len(cols)]
-            novo = col.number_input(
-                f"Jogador {i+1}",
-                min_value=0,
-                max_value=99,
-                step=1,
-                key=f"{eq}_num_{i}",
-                value=num
+            qtd = st.number_input(
+                f"Quantidade de jogadores ({eq})",
+                min_value=1, max_value=20, step=1,
+                value=len(st.session_state["equipes"][eq]) or 7,
+                key=f"qtd_{eq}"
             )
-            st.session_state[f"numeros_{eq}"][i] = novo
 
-        cor = st.color_picker(f"Cor da equipe {eq}", value=st.session_state["cores"][eq], key=f"cor_{eq}")
-        st.session_state["cores"][eq] = cor
+            # Garante lista de números do tamanho certo
+            ensure_num_list(eq, int(qtd))
 
-        if st.button(f"Registrar equipe {eq}", key=f"registrar_{eq}"):
-            st.session_state["equipes"][eq] = [
-                {"numero": n, "estado": "banco", "elegivel": True, "exclusoes": 0}
-                for n in st.session_state[f"numeros_{eq}"]
-            ]
-            st.success(f"Equipe {eq} registrada com {len(st.session_state[f'numeros_{eq}'])} jogadores!")
+            # Editor de números (camisetas)
+            st.markdown("**Números das camisetas:**")
+            cols = st.columns(5)
+            for i, num in enumerate(st.session_state[f"numeros_{eq}"]):
+                with cols[i % 5]:
+                    novo = st.number_input(
+                        f"Jogador {i+1}",
+                        min_value=0, max_value=999, step=1,
+                        value=int(num),
+                        key=f"{eq}_num_{i}"
+                    )
+                    st.session_state[f"numeros_{eq}"][i] = int(novo)
+
+            # Cor da equipe (mantendo seu padrão atual)
+            cor = st.color_picker(
+                f"Cor da equipe {eq}",
+                value=st.session_state["cores"][eq],
+                key=f"cor_{eq}"
+            )
+            st.session_state["cores"][eq] = cor
+
+            # Salvar/registrar equipe
+            if st.button(f"Salvar equipe {eq}", key=f"save_team_{eq}"):
+                numeros = st.session_state[f"numeros_{eq}"]
+                st.session_state["equipes"][eq] = [
+                    {"numero": int(n), "estado": "banco", "elegivel": True, "exclusoes": 0}
+                    for n in numeros
+                ]
+                st.success(f"Equipe {eq} salva com {len(numeros)} jogadores.")
+                # Ao salvar nova configuração, desbloqueia titulares para nova seleção
+                st.session_state["titulares_definidos"][eq] = False
 
 # =====================================================
 # ⚙️ Função de painel de substituições (corrigida)

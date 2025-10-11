@@ -1,13 +1,16 @@
+import sys, os
+sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
+
 import streamlit as st
 import pandas as pd
 import time
 import plotly.express as px
-from utils.registros import salvar_csv
-from utils.jogador import (
+from registros import salvar_csv
+from jogador import (
     inicializar_equipes, atualizar_tempos,
     aplicar_penalidade, substituir_jogadores, atualizar_penalidades
 )
-from utils.sons import tocar_alarme
+from sons import tocar_alarme
 
 st.set_page_config(page_title="Controle de Jogo", layout="wide")
 

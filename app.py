@@ -1,3 +1,9 @@
+import os, sys
+print("📁 Diretório atual:", os.getcwd())
+print("📂 Conteúdo:", os.listdir("."))
+print("📂 Conteúdo utils:", os.listdir("utils"))
+sys.path.append(os.getcwd())
+
 import streamlit as st
 import pandas as pd
 from streamlit_autorefresh import st_autorefresh

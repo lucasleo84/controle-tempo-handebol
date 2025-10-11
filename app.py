@@ -1,19 +1,17 @@
-import sys, os
-sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
-
 import streamlit as st
 import pandas as pd
 import time
 import plotly.express as px
-from registros import salvar_csv
-from jogador import (
+from utils.registros import salvar_csv
+from utils.jogador import (
     inicializar_equipes, atualizar_tempos,
     aplicar_penalidade, substituir_jogadores, atualizar_penalidades
 )
-from sons import tocar_alarme
+from utils.sons import tocar_alarme
 
 st.set_page_config(page_title="Controle de Jogo", layout="wide")
 
+# ===== Inicialização =====
 if "iniciado" not in st.session_state:
     st.session_state.update({
         "iniciado": False,
@@ -26,6 +24,7 @@ if "iniciado" not in st.session_state:
 
 st.title("🏐 Controle de Jogo com Registro e Alertas")
 
+# ===== Criação das equipes =====
 colA, colB = st.columns(2)
 with colA:
     if not st.session_state["equipes"]["A"]:
@@ -40,6 +39,7 @@ with colB:
             st.session_state["equipes"]["B"] = inicializar_equipes("B", qtdB)
             st.success("Equipe B criada!")
 
+# ===== Interface de jogo =====
 if st.session_state["equipes"]["A"] and st.session_state["equipes"]["B"]:
     st.divider()
     c1, c2, c3, c4 = st.columns([1, 1, 1, 2])
@@ -61,6 +61,7 @@ if st.session_state["equipes"]["A"] and st.session_state["equipes"]["B"]:
             salvar_csv(st.session_state)
             st.success("✅ Dados salvos em dados/saida_jogo.csv")
 
+    # ===== Atualização do cronômetro =====
     if st.session_state["iniciado"]:
         st.session_state["cronometro"] += 1
         atualizar_tempos(st.session_state)
@@ -70,6 +71,7 @@ if st.session_state["equipes"]["A"] and st.session_state["equipes"]["B"]:
 
     st.header(f"🕒 Tempo de jogo: {st.session_state['cronometro']} s")
 
+    # ===== Exibição das equipes =====
     col1, col2 = st.columns(2)
     for equipe, col in zip(["A", "B"], [col1, col2]):
         with col:
@@ -94,11 +96,13 @@ if st.session_state["equipes"]["A"] and st.session_state["equipes"]["B"]:
                 if st.button("Expulsar", key=f"exp_{equipe}"):
                     aplicar_penalidade(st.session_state, equipe, jogador, tipo="expulsao")
 
+    # ===== Painel de penalidades =====
     st.divider()
     st.subheader("⏱️ Penalidades Ativas")
     if st.session_state["penalidades"]:
         pen_df = pd.DataFrame(st.session_state["penalidades"])
         st.dataframe(pen_df)
+        # alertas sonoros e visuais
         penal_terminada = any(p["restante"] <= 0 for p in st.session_state["penalidades"])
         if penal_terminada:
             st.toast("🔔 Penalidade encerrada!", icon="🔊")
@@ -106,6 +110,7 @@ if st.session_state["equipes"]["A"] and st.session_state["equipes"]["B"]:
     else:
         st.info("Nenhuma penalidade ativa.")
 
+    # ===== Gráficos =====
     st.divider()
     st.subheader("📊 Estatísticas de Tempo de Jogo")
     for equipe in ["A", "B"]:

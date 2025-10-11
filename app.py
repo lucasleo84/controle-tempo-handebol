@@ -8,6 +8,55 @@ import time
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+import json  # <-- adicione no topo se ainda não tiver
+
+def render_cronometro_js():
+    """Renderiza cronômetro visual em JS, sincronizado com tempo lógico."""
+    iniciado = bool(st.session_state["iniciado"])
+    base_elapsed = float(st.session_state["cronometro"])
+    start_epoch = float(st.session_state["ultimo_tick"]) if iniciado else None
+
+    # Serialização segura para JS
+    iniciado_js = "true" if iniciado else "false"
+    base_elapsed_js = json.dumps(base_elapsed)   # ex.: 123.4567
+    start_epoch_js  = json.dumps(start_epoch)    # ex.: 1712345678.1234 ou null
+
+    html = f"""
+    <div id="header-fixed">
+        <div id="cronovisual" class="digital">⏱ {formato_mmss(base_elapsed)}</div>
+    </div>
+    <script>
+    (function(){{
+        const el = document.getElementById('cronovisual');
+        const iniciado = {iniciado_js};
+        const baseElapsed = {base_elapsed_js};
+        const startEpoch = {start_epoch_js};
+
+        function fmt(sec){{
+            sec = Math.max(0, Math.floor(sec));
+            const m = Math.floor(sec/60);
+            const s = sec % 60;
+            return (m<10?'0':'')+m+':' + (s<10?'0':'')+s;
+        }}
+
+        function tick(){{
+            let elapsed = baseElapsed;
+            if (iniciado && startEpoch) {{
+                const now = Date.now()/1000;
+                elapsed = baseElapsed + (now - startEpoch);
+            }}
+            el.textContent = '⏱ ' + fmt(elapsed);
+        }}
+
+        // atualiza 4x/seg para fluidez visual
+        tick();
+        if (window.__cronovisual_timer) clearInterval(window.__cronovisual_timer);
+        window.__cronovisual_timer = setInterval(tick, 250);
+    }})();
+    </script>
+    """
+    components.html(html, height=72)
+
 
 # --- Caminho para os módulos locais ---
 sys.path.append(os.path.join(os.path.dirname(__file__), "utils"))

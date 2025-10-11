@@ -1,5 +1,5 @@
 # ======================================
-# CONTROLE DE JOGO - APP_V8.PY
+# CONTROLE DE JOGO - APP_v8.1
 # ======================================
 # Estrutura: utils/jogador.py | utils/registros.py | utils/sons.py
 # ======================================
@@ -53,7 +53,12 @@ if "iniciado" not in st.session_state:
         "penalidades": [],
         "titulares_definidos": {"A": False, "B": False},
         "funcoes": {"A": {}, "B": {}},
-        "invertido": False,             # A<->B na tela
+        "invertido": False,             # A<->B na tela (fica na aba Controle)
+        "slots_abertos": {"A": 0, "B": 0},  # evita KeyError em 'completou'
+        # visual
+        "cores": {"A": "#00AEEF", "B": "#EC008C"},  # Cyan / Magenta padrão
+        # mensagens temporárias de substituição (para sumirem em 3s)
+        "sub_msg_time": {"A": 0.0, "B": 0.0},
     })
 
 inicializar_equipes_se_nao_existirem(st.session_state)
@@ -65,7 +70,7 @@ st.markdown(
     """
     <style>
     /* espaço pro cabeçalho padrão do Streamlit */
-    .block-container { padding-top: 130px; }
+    .block-container { padding-top: 150px; }
 
     /* Cronômetro fixo */
     #header-fixed {
@@ -74,7 +79,7 @@ st.markdown(
         background-color: #ffffff;
         border-bottom: 2px solid #ddd;
         text-align: center;
-        padding: 4px 0;
+        padding: 4px 0 0 0;
         z-index: 9999;
     }
     .digital {
@@ -90,18 +95,23 @@ st.markdown(
         box-shadow: 0 0 10px rgba(255, 215, 0, .5);
     }
 
-    /* Abas fixas logo abaixo do cronômetro */
-    .tabs-fixed { position: sticky; top: 50px; background: #fff; z-index: 9998; }
+    /* Abas fixas (mantém visíveis) */
+    div.stTabs > div[data-baseweb="tab-list"] {
+        position: sticky;
+        top: 56px; /* logo abaixo do cronômetro */
+        background: #fff;
+        z-index: 9998;
+        border-bottom: 1px solid #e5e7eb;
+        padding-top: 6px;
+    }
 
-    /* chips de legenda */
-    .chip { display:inline-flex; align-items:center; gap:.5rem; padding:.25rem .5rem; border-radius:999px; font-weight:700; color:#fff; }
+    /* chips legendas Sai/Entra */
+    .chip { display:inline-flex; align-items:center; gap:.5rem; padding:.25rem .6rem; border-radius:999px; font-weight:700; color:#fff; }
     .chip-sai   { background:#ff4b4b; }
     .chip-entra { background:#1aa260; }
 
-    /* cabeçalhos de coluna */
-    .side-head { font-weight:800; font-size:1.1rem; padding:.35rem .6rem; border-radius:8px; color:#fff; display:inline-block; }
-    .side-A { background:#3B82F6; }   /* azul */
-    .side-B { background:#EF4444; }   /* vermelho */
+    /* cabeçalhos de coluna (cores aplicáveis) */
+    .side-head { font-weight:800; font-size:1.05rem; padding:.35rem .6rem; border-radius:8px; color:#fff; display:inline-block; }
 
     /* divisória */
     hr { border:0; height:1px; background:#e4e4e7; margin:12px 0; }
@@ -111,7 +121,7 @@ st.markdown(
 )
 
 # ================================
-#   CRONÔMETRO DIGITAL
+#   CRONÔMETRO DIGITAL (automático)
 # ================================
 def tick_cronometro():
     if not st.session_state["iniciado"]:
@@ -129,46 +139,58 @@ def tick_cronometro():
 tick_cronometro()
 
 # ================================
-#   HEADER FIXO (CRONÔMETRO)
+#   HEADER FIXO (CRONÔMETRO + BOTÕES)
 # ================================
-st.markdown(
-    f"""
-    <div id="header-fixed">
-        <div class="digital">⏱ {formato_mmss(st.session_state['cronometro'])}</div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+with st.container():
+    st.markdown(
+        f"""
+        <div id="header-fixed">
+            <div class="digital">⏱ {formato_mmss(st.session_state['cronometro'])}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    # Botões mais próximos do cronômetro
+    bc1, bc2, bc3, bc4 = st.columns([1,1,1,1])
+    with bc1:
+        if st.button("▶️ Iniciar"):
+            st.session_state["iniciado"] = True
+            st.session_state["ultimo_tick"] = time.time()
+    with bc2:
+        if st.button("⏸️ Pausar"):
+            st.session_state["iniciado"] = False
+    with bc3:
+        if st.button("🔁 Zerar"):
+            st.session_state["iniciado"] = False
+            st.session_state["cronometro"] = 0
+            st.session_state["ultimo_tick"] = time.time()
+            for eq in ["A","B"]:
+                for j in st.session_state["equipes"][eq]:
+                    j.update({
+                        "tempo_jogado": 0, "tempo_banco": 0, "tempo_penalidade": 0,
+                        "exclusoes": 0, "elegivel": True, "expulso": False, "estado":"banco"
+                    })
+            st.session_state["penalidades"] = []
+    with bc4:
+        if st.button("💾 Salvar CSV"):
+            salvar_csv(st.session_state)
+            st.success("Dados salvos em dados/saida_jogo.csv")
 
 # ================================
-#   CONTROLES GERAIS
+#   Paleta de cores CMYK (nomes → hex)
 # ================================
-c1, c2, c3, c4, c5 = st.columns([1,1,1,1,2])
-with c1:
-    if st.button("▶️ Iniciar"):
-        st.session_state["iniciado"] = True
-        st.session_state["ultimo_tick"] = time.time()
-with c2:
-    if st.button("⏸️ Pausar"):
-        st.session_state["iniciado"] = False
-with c3:
-    if st.button("🔁 Zerar"):
-        st.session_state["iniciado"] = False
-        st.session_state["cronometro"] = 0
-        st.session_state["ultimo_tick"] = time.time()
-        for eq in ["A","B"]:
-            for j in st.session_state["equipes"][eq]:
-                j.update({
-                    "tempo_jogado": 0, "tempo_banco": 0, "tempo_penalidade": 0,
-                    "exclusoes": 0, "elegivel": True, "expulso": False, "estado":"banco"
-                })
-        st.session_state["penalidades"] = []
-with c4:
-    if st.button("💾 Salvar CSV"):
-        salvar_csv(st.session_state)
-        st.success("Dados salvos em dados/saida_jogo.csv")
-with c5:
-    st.toggle("🔁 Inverter lados (A↔B)", key="invertido")
+PALETA = {
+    "Ciano": "#00AEEF",
+    "Magenta": "#EC008C",
+    "Amarelo": "#FFD700",
+    "Preto": "#000000",
+    "Azul": "#0072CE",
+    "Vermelho": "#ED1C24",
+    "Verde": "#00A651",
+    "Laranja": "#F7941D",
+    "Roxo": "#92278F",
+    "Cinza": "#6D6E71",
+}
 
 # ================================
 #   ABAS
@@ -186,9 +208,19 @@ tabs = st.tabs([
 with tabs[0]:
     st.subheader("Configuração da Equipe")
     colA, colB = st.columns(2)
-    for equipe, col in zip(["A","B"], [colA,colB]):
+    for equipe, col in zip(["A", "B"], [colA, colB]):
         with col:
             st.markdown(f"### Equipe {equipe}")
+            # cor da equipe
+            cor_nome = st.selectbox(
+                f"Cor da Equipe {equipe} (CMYK)",
+                options=list(PALETA.keys()),
+                index=list(PALETA.keys()).index("Ciano" if equipe=="A" else "Magenta")
+                    if st.session_state["cores"][equipe] in ["#00AEEF", "#EC008C"] else 0,
+                key=f"cor_nome_{equipe}"
+            )
+            st.session_state["cores"][equipe] = PALETA[cor_nome]
+
             nome = st.text_input(f"Nome da equipe {equipe}", key=f"nome_{equipe}")
             qtd = st.number_input(
                 f"Quantidade de jogadores {equipe}",
@@ -220,7 +252,7 @@ with tabs[0]:
                 st.success(f"Equipe {equipe} salva!")
 
 # ==============================================================
-# ABA 2 — TITULARES + FUNÇÕES
+# ABA 2 — TITULARES
 # ==============================================================
 with tabs[1]:
     st.subheader("Definição de Titulares e Funções")
@@ -247,29 +279,30 @@ with tabs[1]:
                     corrigir_titulares(st.session_state, equipe)
                     st.info("Titulares desbloqueados para edição.")
 
-        with st.expander(f"📋 Funções (opcional) — {equipe}", expanded=False):
-            posicoes = ["Goleiro","Pivô","Ponta Esquerda","Armação Esquerda","Armação Central","Armação Direita","Ponta Direita"]
-            titulares = [j for j in st.session_state["equipes"][equipe] if j["estado"]=="jogando"]
-            if not titulares:
-                st.info("Defina titulares para atribuir funções.")
-            else:
-                for j in titulares:
-                    atual = st.session_state["funcoes"][equipe].get(j["numero"])
-                    val = st.selectbox(
-                        f"#{j['numero']}",
-                        options=["(sem função)"]+posicoes,
-                        index=0 if atual is None else (["(sem função)"]+posicoes).index(atual),
-                        key=f"func_{equipe}_{j['numero']}"
-                    )
-                    set_posicao_titular(st.session_state, equipe, j["numero"], None if val=="(sem função)" else val)
+            with st.expander("📋 Funções (opcional)", expanded=False):
+                posicoes = ["Goleiro","Pivô","Ponta Esquerda","Armação Esquerda","Armação Central","Armação Direita","Ponta Direita"]
+                titulares = [j for j in st.session_state["equipes"][equipe] if j["estado"]=="jogando"]
+                if not titulares:
+                    st.info("Defina titulares para atribuir funções.")
+                else:
+                    for j in titulares:
+                        atual = st.session_state["funcoes"][equipe].get(j["numero"])
+                        val = st.selectbox(
+                            f"#{j['numero']}",
+                            options=["(sem função)"]+posicoes,
+                            index=0 if atual is None else (["(sem função)"]+posicoes).index(atual),
+                            key=f"func_{equipe}_{j['numero']}"
+                        )
+                        set_posicao_titular(st.session_state, equipe, j["numero"], None if val=="(sem função)" else val)
 
 # ==============================================================
 # ABA 3 — CONTROLE DO JOGO (lado a lado + inverter)
 # ==============================================================
 with tabs[2]:
     st.subheader("Controle do Jogo")
+    # inverter lados aqui (como você pediu)
+    st.toggle("🔁 Inverter lados (A↔B)", key="invertido")
 
-    # Decide ordem visual A|B ou B|A
     lados = ["A","B"]
     if st.session_state["invertido"]:
         lados = ["B","A"]
@@ -277,63 +310,83 @@ with tabs[2]:
     col_esq, col_dir = st.columns(2)
 
     def painel_controle_equipe(equipe: str):
-        # Cabeçalho de lado
+        # cabeçalho com cor da equipe
         st.markdown(
-            f"<span class='side-head side-{equipe}'>Equipe {equipe}</span>",
+            f"<span class='side-head' style='background:{st.session_state['cores'][equipe]};'>Equipe {equipe}</span>",
             unsafe_allow_html=True
         )
 
-        # Listas restritas
+        # listas restritas
         jogando = [j["numero"] for j in st.session_state["equipes"][equipe] if j["estado"]=="jogando" and j["elegivel"]]
-        banco   = [j["numero"] for j in st.session_state["equipes"][equipe] if j["estado"]=="banco" and j["elegivel"]]
+        banco   = [j["numero"] for j in st.session_state["equipes"][equipe] if j["estado"]=="banco"   and j["elegivel"]]
 
-        c1, c2 = st.columns([1,1])
+        c1, c2, cbtn = st.columns([1,1,1.1])
+
         with c1:
-            sai = st.selectbox("🟥 Sai", options=([None]+jogando), index=0, key=f"sai_{equipe}")
+            sai = st.selectbox("🟥 Sai (jogando)", options=[None]+jogando, index=0, key=f"sai_{equipe}")
         with c2:
-            entra = st.selectbox("🟩 Entra", options=([None]+banco), index=0, key=f"entra_{equipe}")
+            entra = st.selectbox("🟩 Entra (banco)", options=[None]+banco, index=0, key=f"entra_{equipe}")
 
-        # Legenda
-        leg = []
-        if sai is not None:
-            leg.append(f"<span class='chip chip-sai'>Sai {sai}</span>")
-        if entra is not None:
-            leg.append(f"<span class='chip chip-entra'>Entra {entra}</span>")
-        if leg:
-            st.markdown(" ".join(leg), unsafe_allow_html=True)
+        with cbtn:
+            disabled = (sai is None) or (entra is None) or (sai == entra)
+            if st.button("Substituir", key=f"btn_sub_{equipe}", disabled=disabled):
+                try:
+                    ok, msg = efetuar_substituicao(st.session_state, equipe, [str(sai), str(entra)])
+                    if ok:
+                        # limpa selects e atualiza horário da legenda para sumir em 3s
+                        st.session_state[f"sai_{equipe}"] = None
+                        st.session_state[f"entra_{equipe}"] = None
+                        st.session_state["sub_msg_time"][equipe] = time.time()
+                        st.success("Substituição registrada.")
+                    else:
+                        st.error(msg)
+                except Exception as e:
+                    st.error("Não foi possível efetuar a substituição.")
+
+        # legenda "Sai/Entra" temporária (some em 3s)
+        now = time.time()
+        if (sai is not None and entra is not None) or (now - st.session_state["sub_msg_time"][equipe] < 3):
+            # se acabou de substituir, exibe por até 3s
+            s = sai if sai is not None else ""
+            e = entra if entra is not None else ""
+            st.markdown(
+                f"<span class='chip chip-sai'>Sai {s}</span> "
+                f"<span class='chip chip-entra'>Entra {e}</span>",
+                unsafe_allow_html=True
+            )
 
         st.markdown("<hr>", unsafe_allow_html=True)
 
-        # Jogador único para penalidades / completou
-        unico = st.selectbox("Jogador (2min / Expulsão / Completou)", options=[None]+jogando+banco, index=0, key=f"unico_{equipe}")
+        # penalidades / expulsão / completou
+        unico = st.selectbox("Jogador (2min / Expulsão / Completou)", options=[None]+sorted(jogando+banco), index=0, key=f"unico_{equipe}")
 
-        # Botões
-        b1, b2, b3, b4 = st.columns(4)
+        b1, b2, b3 = st.columns(3)
         with b1:
-            disabled = (sai is None) or (entra is None) or (sai == entra)
-            if st.button("Substituir", key=f"btn_sub_{equipe}", disabled=disabled):
-                ok, msg = efetuar_substituicao(st.session_state, equipe, [str(sai), str(entra)])
-                st.success(msg) if ok else st.error(msg)
-
-        with b2:
             if st.button("2 Minutos", key=f"btn_2min_{equipe}", disabled=(unico is None)):
-                ok, msg, terminou3 = aplicar_exclusao_2min(st.session_state, equipe, str(unico))
-                if ok:
-                    st.warning(msg)
-                    if terminou3:
-                        st.error("Jogador inelegível (3 exclusões).")
-                else:
-                    st.error(msg)
-
-        with b3:
+                try:
+                    ok, msg, terminou3 = aplicar_exclusao_2min(st.session_state, equipe, str(unico))
+                    if ok:
+                        st.warning(msg)
+                        if terminou3:
+                            st.error("Jogador inelegível (3 exclusões).")
+                    else:
+                        st.error(msg)
+                except Exception as e:
+                    st.error("Falha ao aplicar 2 minutos.")
+        with b2:
             if st.button("Expulsão", key=f"btn_exp_{equipe}", disabled=(unico is None)):
-                ok, msg = aplicar_expulsao(st.session_state, equipe, str(unico))
-                st.error(msg) if ok else st.error(msg)
-
-        with b4:
+                try:
+                    ok, msg = aplicar_expulsao(st.session_state, equipe, str(unico))
+                    st.error(msg) if ok else st.error(msg)
+                except Exception as e:
+                    st.error("Falha ao aplicar expulsão.")
+        with b3:
             if st.button("Completou", key=f"btn_comp_{equipe}", disabled=(unico is None)):
-                ok, msg = completar_substituicao(st.session_state, equipe, str(unico))
-                st.success(msg) if ok else st.error(msg)
+                try:
+                    ok, msg = completar_substituicao(st.session_state, equipe, str(unico))
+                    st.success(msg) if ok else st.error(msg)
+                except Exception as e:
+                    st.error("Falha ao completar retorno.")
 
     with col_esq:
         painel_controle_equipe(lados[0])

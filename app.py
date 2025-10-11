@@ -1,15 +1,17 @@
-# ================================
-#   CONTROLE DE JOGO - APP.PY
-#   Versão estável para Streamlit Cloud
-#   (sem loops, watchdog desativado, cronômetro fluido)
-# ================================
+# ======================================
+# CONTROLE DE JOGO - APP.PY
+# Versão FINAL estável para Streamlit Cloud
+# ======================================
 
 import os
 
-# --- Correções de ambiente ---
+# 🚫 Desativa completamente todos os watchers e reloads automáticos
 os.environ["WATCHDOG_MAX_INSTANCES"] = "0"
 os.environ["STREAMLIT_WATCHDOG"] = "false"
 os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
+os.environ["STREAMLIT_SERVER_HEADLESS"] = "true"
+os.environ["STREAMLIT_SERVER_RUN_ON_SAVE"] = "false"
+os.environ["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
 
 # --- Importações principais ---
 import streamlit as st
@@ -108,10 +110,10 @@ aplicar_css()
 
 
 # ================================
-#   ATUALIZAÇÃO SEGURA DO CRONÔMETRO
+#   ATUALIZAÇÃO MANUAL DO CRONÔMETRO
 # ================================
 def atualizar_cronometro():
-    """Atualiza o cronômetro sem loops infinitos."""
+    """Atualiza o cronômetro apenas quando o usuário clica em 'Atualizar'."""
     if st.session_state["iniciado"]:
         agora = time.time()
         if agora - st.session_state["ultimo_tick"] >= 1:
@@ -179,8 +181,6 @@ with tabs[0]:
 # ABA 2 — CONTROLE DO JOGO
 # ==============================================================
 with tabs[1]:
-    atualizar_cronometro()
-
     st.markdown(
         f"""
         <div id="sticky-timer">
@@ -223,6 +223,14 @@ with tabs[1]:
         st.toggle("Modo noturno", key="dark_mode", value=st.session_state["dark_mode"])
         aplicar_css()
 
+    # Botão para atualizar o cronômetro
+    if st.button("🔄 Atualizar Cronômetro"):
+        atualizar_cronometro()
+
+    # Exibição do tempo atualizado
+    st.write(f"**Tempo atual:** {formato_mmss(st.session_state['cronometro'])}")
+
+    st.divider()
     st.markdown("### Definir Titulares")
     infoA, infoB = st.columns(2)
     for equipe, box in zip(["A", "B"], [infoA, infoB]):
@@ -247,33 +255,6 @@ with tabs[1]:
                 if st.button(f"Corrigir {equipe}"):
                     corrigir_titulares(st.session_state, equipe)
                     st.info("Titulares desbloqueados para edição.")
-
-    st.divider()
-
-    # Função dos jogadores
-    st.markdown("### Função dos jogadores (opcional)")
-    posicoes = ["Goleiro", "Pivô", "Ponta Esquerda", "Armação Esquerda",
-                "Armação Central", "Armação Direita", "Ponta Direita"]
-
-    fA, fB = st.columns(2)
-    for equipe, box in zip(["A", "B"], [fA, fB]):
-        with box:
-            st.markdown(f"**Equipe {equipe}**")
-            titulares = [j for j in st.session_state["equipes"][equipe] if j["estado"] == "jogando"]
-            if not titulares:
-                st.info("Defina titulares para atribuir funções.")
-            else:
-                for j in titulares:
-                    val = st.selectbox(
-                        f"#{j['numero']}",
-                        options=["(sem função)"] + posicoes,
-                        index=0 if j["numero"] not in st.session_state["funcoes"][equipe]
-                        else (["(sem função)"] + posicoes).index(
-                            st.session_state["funcoes"][equipe][j["numero"]]),
-                        key=f"func_{equipe}_{j['numero']}"
-                    )
-                    set_posicao_titular(st.session_state, equipe, j["numero"],
-                                        None if val == "(sem função)" else val)
 
     st.divider()
 

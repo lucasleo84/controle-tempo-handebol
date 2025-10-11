@@ -98,10 +98,6 @@ def completar_substituicao(state, equipe, numero):
 st.title("Controle de Tempo - Handebol")
 
 abas = st.tabs(["Configuração da Equipe", "Definir Titulares", "Controle do Jogo", "Visualização de Dados"])
-
-# =====================================================
-# ABA 1 — CONFIGURAÇÃO DA EQUIPE
-# =====================================================
 with abas[0]:
     st.subheader("Configuração da Equipe")
 
@@ -230,10 +226,6 @@ def painel(equipe: str):
         st.success(msg) if ok else st.error(msg)
 
 # =====================================================
-# ⚙️ ABA 2 - DEFINIR TITULARES
-# =====================================================
-
-# =====================================================
 # ABA 2 — DEFINIR TITULARES
 # =====================================================
 with abas[1]:
@@ -283,7 +275,7 @@ with abas[1]:
             if st.button(f"Corrigir ({eq})", key=f"corrigir_tit_{eq}"):
                 st.session_state["titulares_definidos"][eq] = False
                 st.info("Edição de titulares liberada.")
-
+                
 # =====================================================
 # ⚙️ ABA 3 - CONTROLE DO JOGO
 # =====================================================

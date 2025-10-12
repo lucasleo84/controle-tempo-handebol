@@ -345,6 +345,190 @@ with abas[2]:
         colB, colA = st.columns(2)
         with colB:
             painel("B", cor_b)
+# =====================================================
+# ABA 3 — CONTROLE DO JOGO (sem conflitos, usando o cronômetro do topo)
+# =====================================================
+
+# ⬇️ Helpers específicos desta aba (não conflitam com os do topo)
+def atualizar_estado(eq: str, numero: int, novo_estado: str):
+    """Altera o estado do jogador (jogando/banco/excluido/expulso)."""
+    for j in st.session_state["equipes"][eq]:
+        if j["numero"] == numero:
+            j["estado"] = novo_estado
+            return
+
+def jogadores_por_estado(eq: str, estado: str):
+    """Lista de números de jogadores por estado, apenas elegíveis."""
+    return [
+        j["numero"]
+        for j in st.session_state["equipes"][eq]
+        if j.get("estado") == estado and j.get("elegivel", True)
+    ]
+
+def aplicar_exclusao(eq: str, numero: int):
+    """Marca exclusão (2 min). Soma contagem e expulsa ao atingir 3."""
+    for j in st.session_state["equipes"][eq]:
+        if j["numero"] == numero:
+            j["estado"] = "excluido"
+            j["exclusoes"] = int(j.get("exclusoes", 0)) + 1
+            # expulsão automática com 3 exclusões
+            if j["exclusoes"] >= 3:
+                j["estado"] = "expulso"
+                j["elegivel"] = False
+            return
+
+def render_cronometro_exclusao():
+    """Cronômetro regressivo de 2 minutos com alerta sonoro (visual JS)."""
+    html = """
+    <div style="text-align:center;">
+      <div id="exclusao" style="font-family:'Courier New';font-size:18px;color:#FF3333;
+        background:#111;padding:4px 8px;border-radius:6px;display:inline-block;
+        text-shadow:0 0 10px red;">⏱ 02:00</div>
+    </div>
+    <audio id="alarme" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+    <script>
+      let t = 120;
+      const el = document.getElementById('exclusao');
+      const beep = document.getElementById('alarme');
+      const timer = setInterval(() => {
+        t--;
+        const m = String(Math.floor(t/60)).padStart(2,'0');
+        const s = String(t%60).padStart(2,'0');
+        el.textContent = '⏱ ' + m + ':' + s;
+        if (t <= 0) {
+          clearInterval(timer);
+          el.textContent = '✅ Tempo cumprido';
+          try { beep.play(); } catch(e) {}
+        }
+      }, 1000);
+    </script>
+    """
+    components.html(html, height=90)
+
+def painel_equipe(eq: str, cor: str):
+    st.markdown(
+        f"<h4 style='text-align:center; color:{cor}; margin-bottom:6px;'>Equipe {eq}</h4>",
+        unsafe_allow_html=True
+    )
+
+    jogando  = jogadores_por_estado(eq, "jogando")
+    banco    = jogadores_por_estado(eq, "banco")
+    excluido = jogadores_por_estado(eq, "excluido")
+
+    c1, c2, c3 = st.columns([1, 1, 1])
+
+    # 🔁 Substituição
+    with c1:
+        st.markdown("**🔁 Substituição**")
+        sai   = st.selectbox("Sai", jogando, key=f"sai_{eq}")
+        entra = st.selectbox("Entra", banco,   key=f"entra_{eq}")
+        if st.button("Confirmar", key=f"sub_{eq}"):
+            if sai and entra:
+                atualizar_estado(eq, sai,   "banco")
+                atualizar_estado(eq, entra, "jogando")
+                st.success(f"Sai {sai}, Entra {entra}")
+
+    # ⏱ 2 minutos + ✅ Completou
+    with c2:
+        st.markdown("**⏱ 2 minutos**")
+        jog_exc = st.selectbox("Jogador", jogando, key=f"exc_{eq}")
+        if st.button("Aplicar", key=f"btn_exc_{eq}"):
+            if jog_exc:
+                aplicar_exclusao(eq, jog_exc)
+                # se chegou a 3, já foi expulso; caso contrário, 2 minutos visual
+                j = next((x for x in st.session_state["equipes"][eq] if x["numero"] == jog_exc), None)
+                if j and j.get("estado") == "expulso":
+                    st.error(f"{jog_exc} expulso (3 exclusões).")
+                else:
+                    st.warning(f"{jog_exc} fora por 2 minutos")
+                    render_cronometro_exclusao()
+
+        st.markdown("<hr style='margin:4px 0;'>", unsafe_allow_html=True)
+        st.markdown("**✅ Completou / Retorna**")
+        elegiveis_retorno = excluido + banco  # agora pode escolher excluído OU banco
+        jog_ret = st.selectbox("Jogador que retorna", elegiveis_retorno, key=f"comp_{eq}")
+        if st.button("Confirmar Retorno", key=f"btn_comp_{eq}"):
+            if jog_ret:
+                atualizar_estado(eq, jog_ret, "jogando")
+                st.success(f"{jog_ret} entrou em quadra")
+
+    # 🟥 Expulsão manual
+    with c3:
+        st.markdown("**🟥 Expulsão**")
+        lista_exp = jogando + banco + excluido
+        jog_exp = st.selectbox("Jogador", lista_exp, key=f"exp_{eq}")
+        if st.button("Expulsar", key=f"btn_exp_{eq}"):
+            if jog_exp:
+                atualizar_estado(eq, jog_exp, "expulso")
+                for j in st.session_state["equipes"][eq]:
+                    if j["numero"] == jog_exp:
+                        j["elegivel"] = False
+                st.error(f"{jog_exp} expulso do jogo!")
+
+# ---------------------- RENDERIZAÇÃO DA ABA 3 ----------------------
+with abas[2]:
+    st.subheader("Controle do Jogo")
+
+    # Controles do cronômetro (usam o estado já definido no topo)
+    cc1, cc2, cc3, cc4 = st.columns([1,1,1,2])
+    with cc1:
+        if st.button("▶️ Iniciar", key="clk_start"):
+            if not st.session_state["cron_running"]:
+                st.session_state["cron_running"] = True
+                st.session_state["cron_start_epoch"] = time.time()
+                st.toast("⏱️ Iniciado", icon="▶️")
+    with cc2:
+        if st.button("⏸️ Pausar", key="clk_pause"):
+            if st.session_state["cron_running"]:
+                # consolida
+                agora = time.time()
+                st.session_state["cron_base"] = (
+                    st.session_state["cron_base"] + (agora - st.session_state["cron_start_epoch"])
+                )
+                st.session_state["cron_running"] = False
+                st.session_state["cron_start_epoch"] = None
+                st.toast("⏸️ Pausado", icon="⏸️")
+    with cc3:
+        if st.button("🔁 Zerar", key="clk_reset"):
+            st.session_state["cron_running"] = False
+            st.session_state["cron_base"] = 0.0
+            st.session_state["cron_start_epoch"] = None
+            st.toast("🔁 Zerado", icon="🔁")
+    with cc4:
+        st.session_state["periodo"] = st.selectbox(
+            "Período",
+            ["1º Tempo", "2º Tempo"],
+            index=0 if st.session_state["periodo"] == "1º Tempo" else 1,
+            key="sel_periodo"
+        )
+
+    # Mostra o cronômetro visual JS **usando a função que você já definiu no topo**
+    render_cronometro_js()
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Botão de inverter lados
+    if "invertido" not in st.session_state:
+        st.session_state["invertido"] = False
+    if st.button("🔄 Inverter Lados"):
+        st.session_state["invertido"] = not st.session_state["invertido"]
+
+    # Cores vindas da aba de configuração
+    cor_a = st.session_state["cores"].get("A", "#1976D2")
+    cor_b = st.session_state["cores"].get("B", "#D32F2F")
+
+    # Equipes lado a lado
+    if not st.session_state["invertido"]:
+        colA, colB = st.columns(2)
+        with colA:
+            painel_equipe("A", cor_a)
+        with colB:
+            painel_equipe("B", cor_b)
+    else:
+        colB, colA = st.columns(2)
+        with colB:
+            painel_equipe("B", cor_b)
+        with colA:
+            painel_equipe("A", cor_a)
         with colA:
             painel("A", cor_a)
 

@@ -1,5 +1,7 @@
 import streamlit as st
 import time
+import json
+import streamlit.components.v1 as components
 
 # =====================================================
 # 🔧 Inicialização de estado
@@ -10,6 +12,19 @@ if "cores" not in st.session_state:
     st.session_state["cores"] = {"A": "#00AEEF", "B": "#EC008C"}
 if "titulares_definidos" not in st.session_state:
     st.session_state["titulares_definidos"] = {"A": False, "B": False}
+
+# --- estado do cronômetro (lógico) ---
+# cron_base: segundos acumulados até a última pausa
+# cron_running: se está rodando
+# cron_start_epoch: time.time() do último "iniciar" (para calcular o tempo corrente)
+if "cron_base" not in st.session_state:
+    st.session_state["cron_base"] = 0.0
+if "cron_running" not in st.session_state:
+    st.session_state["cron_running"] = False
+if "cron_start_epoch" not in st.session_state:
+    st.session_state["cron_start_epoch"] = None
+if "periodo" not in st.session_state:
+    st.session_state["periodo"] = "1º Tempo"
 
 # =====================================================
 # 🧭 Criação das abas
@@ -22,7 +37,93 @@ abas = st.tabs([
 ])
 
 # =====================================================
+# Helpers do cronômetro
+# =====================================================
+def tempo_logico_atual() -> float:
+    """Retorna o tempo total (segundos) sem alterar o estado."""
+    if st.session_state["cron_running"] and st.session_state["cron_start_epoch"]:
+        agora = time.time()
+        return st.session_state["cron_base"] + (agora - st.session_state["cron_start_epoch"])
+    return st.session_state["cron_base"]
+
+def iniciar():
+    if not st.session_state["cron_running"]:
+        st.session_state["cron_running"] = True
+        st.session_state["cron_start_epoch"] = time.time()
+        st.toast("⏱️ Iniciado", icon="▶️")
+
+def pausar():
+    if st.session_state["cron_running"]:
+        # consolida o tempo
+        st.session_state["cron_base"] = tempo_logico_atual()
+        st.session_state["cron_running"] = False
+        st.session_state["cron_start_epoch"] = None
+        st.toast("⏸️ Pausado", icon="⏸️")
+
+def zerar():
+    st.session_state["cron_running"] = False
+    st.session_state["cron_base"] = 0.0
+    st.session_state["cron_start_epoch"] = None
+    st.toast("🔁 Zerado", icon="🔁")
+
+def fmt_mmss(seg):
+    seg = int(max(0, seg))
+    m, s = divmod(seg, 60)
+    return f"{m:02d}:{s:02d}"
+
+def render_cronometro_js():
+    """Renderiza cronômetro visual suave (JS), sincronizado com o lógico."""
+    iniciado = st.session_state["cron_running"]
+    base_elapsed = float(st.session_state["cron_base"])
+    start_epoch = float(st.session_state["cron_start_epoch"]) if iniciado and st.session_state["cron_start_epoch"] else None
+
+    base_js = json.dumps(base_elapsed)     # p.ex. 123.45
+    start_js = json.dumps(start_epoch)     # p.ex. 1712345678.12 ou null
+    iniciado_js = "true" if iniciado else "false"
+    inicial_fmt = fmt_mmss(tempo_logico_atual())
+
+    html = f"""
+    <div style="text-align:center; margin-top:4px;">
+      <span id="cronovisual" style="
+        font-family: 'Courier New', monospace;
+        font-size: 36px;
+        font-weight: bold;
+        color: #FFD700;
+        background:#000; padding:8px 18px; border-radius:8px;
+        display:inline-block; letter-spacing:2px;
+        box-shadow: 0 0 8px rgba(255,215,0,.45);
+      ">⏱ {inicial_fmt}</span>
+    </div>
+    <script>
+    (function(){{
+        const el = document.getElementById('cronovisual');
+        const iniciado = {iniciado_js};
+        const baseElapsed = {base_js};
+        const startEpoch = {start_js};
+        function fmt(sec) {{
+            sec = Math.max(0, Math.floor(sec));
+            const m = Math.floor(sec/60), s = sec%60;
+            return (m<10?'0':'')+m+':' + (s<10?'0':'')+s;
+        }}
+        function tick(){{
+            let elapsed = baseElapsed;
+            if (iniciado && startEpoch) {{
+                const now = Date.now()/1000;
+                elapsed = baseElapsed + (now - startEpoch);
+            }}
+            el.textContent = '⏱ ' + fmt(elapsed);
+        }}
+        tick();
+        if (window.__cronovisual_timer) clearInterval(window.__cronovisual_timer);
+        window.__cronovisual_timer = setInterval(tick, 250);
+    }})();
+    </script>
+    """
+    components.html(html, height=70)
+
+# =====================================================
 # ABA 1 — CONFIGURAÇÃO DA EQUIPE
+# (exatamente como você mandou)
 # =====================================================
 with abas[0]:
     st.subheader("Configuração da Equipe")
@@ -92,6 +193,7 @@ with abas[0]:
 
 # =====================================================
 # ABA 2 — DEFINIR TITULARES
+# (exatamente como você mandou)
 # =====================================================
 with abas[1]:
     st.subheader("Definir Titulares")
@@ -142,79 +244,18 @@ with abas[1]:
                 st.info("Edição de titulares liberada.")
 
 # =====================================================
-# ABA 3 — CONTROLE DO JOGO
+# ABA 3 — CONTROLE DO JOGO (JS + Python)
 # =====================================================
 with abas[2]:
     st.subheader("Controle do Jogo")
 
-    # Inicialização de estados do cronômetro
-    if "tempo_total" not in st.session_state:
-        st.session_state.tempo_total = 0.0
-    if "rodando" not in st.session_state:
-        st.session_state.rodando = False
-    if "ultimo_tick" not in st.session_state:
-        st.session_state.ultimo_tick = None
-    if "periodo" not in st.session_state:
-        st.session_state.periodo = "1º Tempo"
-
-    # Atualiza tempo se cronômetro estiver rodando
-    if st.session_state.rodando and st.session_state.ultimo_tick:
-        agora = time.time()
-        st.session_state.tempo_total += agora - st.session_state.ultimo_tick
-        st.session_state.ultimo_tick = agora
-
-    # Formatador de tempo
-    def formatar(seg):
-        m = int(seg // 60)
-        s = int(seg % 60)
-        return f"{m:02d}:{s:02d}"
-
-    # Cabeçalho do cronômetro
-    st.markdown("### ⏱️ Cronômetro")
-    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
-    with col1:
-        if st.button("▶️ Iniciar", key="start_btn"):
-            if not st.session_state.rodando:
-                st.session_state.rodando = True
-                st.session_state.ultimo_tick = time.time()
-    with col2:
-        if st.button("⏸️ Pausar", key="pause_btn"):
-            if st.session_state.rodando:
-                agora = time.time()
-                st.session_state.tempo_total += agora - st.session_state.ultimo_tick
-                st.session_state.rodando = False
-    with col3:
-        if st.button("⏹️ Zerar", key="reset_btn"):
-            st.session_state.tempo_total = 0
-            st.session_state.ultimo_tick = None
-            st.session_state.rodando = False
-    with col4:
-        st.session_state.periodo = st.selectbox(
-            "Período de jogo",
-            ["1º Tempo", "2º Tempo"],
-            index=0 if st.session_state.periodo == "1º Tempo" else 1
-        )
-
-    st.markdown(
-        f"<h2 style='text-align:center;'>{formatar(st.session_state.tempo_total)}</h2>",
-        unsafe_allow_html=True
-    )
-
-    # Atualiza automaticamente o cronômetro (sem precisar clicar)
-    st.experimental_rerun()
-
-# =====================================================
-# ABA 4 — VISUALIZAÇÃO DE DADOS
-# =====================================================
-with abas[3]:
-    st.subheader("Visualização de Dados")
-
-    for eq in ["A", "B"]:
-        st.markdown(f"### Equipe {eq}")
-        if not st.session_state["equipes"][eq]:
-            st.info("Nenhuma equipe registrada.")
-            continue
-
-        for j in st.session_state["equipes"][eq]:
-            tempo_jogado = j.get("tempo_jogado", 0.0)
-            st.text(f"Jogador {j['numero']} | Estado: {j['estado']} | Tempo jogado: {tempo_jogado/60:.1f} min")
+    # Linha de controles
+    c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+    with c1:
+        if st.button("▶️ Iniciar", key="btn_iniciar"):
+            iniciar()
+    with c2:
+        if st.button("⏸️ Pausar", key="btn_pausar"):
+            pausar()
+    with c3:
+        if st.button("🔁 Zerar", key="

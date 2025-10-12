@@ -140,3 +140,65 @@ with abas[1]:
             if st.button(f"Corrigir ({eq})", key=f"corrigir_tit_{eq}"):
                 st.session_state["titulares_definidos"][eq] = False
                 st.info("Edição de titulares liberada.")
+
+# =====================================================
+# ABA 3 — CONTROLE DO JOGO
+# =====================================================
+with abas[2]:
+    st.subheader("Controle do Jogo")
+
+    # Inicialização de estados do cronômetro
+    if "tempo_total" not in st.session_state:
+        st.session_state.tempo_total = 0.0
+    if "rodando" not in st.session_state:
+        st.session_state.rodando = False
+    if "ultimo_tick" not in st.session_state:
+        st.session_state.ultimo_tick = None
+    if "periodo" not in st.session_state:
+        st.session_state.periodo = "1º Tempo"
+
+    # Atualiza tempo se cronômetro estiver rodando
+    if st.session_state.rodando and st.session_state.ultimo_tick:
+        agora = time.time()
+        st.session_state.tempo_total += agora - st.session_state.ultimo_tick
+        st.session_state.ultimo_tick = agora
+
+    # Formatador de tempo
+    def formatar(seg):
+        m = int(seg // 60)
+        s = int(seg % 60)
+        return f"{m:02d}:{s:02d}"
+
+    # Cabeçalho do cronômetro
+    st.markdown("### ⏱️ Cronômetro")
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+    with col1:
+        if st.button("▶️ Iniciar", key="start_btn"):
+            if not st.session_state.rodando:
+                st.session_state.rodando = True
+                st.session_state.ultimo_tick = time.time()
+    with col2:
+        if st.button("⏸️ Pausar", key="pause_btn"):
+            if st.session_state.rodando:
+                agora = time.time()
+                st.session_state.tempo_total += agora - st.session_state.ultimo_tick
+                st.session_state.rodando = False
+    with col3:
+        if st.button("⏹️ Zerar", key="reset_btn"):
+            st.session_state.tempo_total = 0
+            st.session_state.ultimo_tick = None
+            st.session_state.rodando = False
+    with col4:
+        st.session_state.periodo = st.selectbox(
+            "Período de jogo",
+            ["1º Tempo", "2º Tempo"],
+            index=0 if st.session_state.periodo == "1º Tempo" else 1
+        )
+
+    st.markdown(
+        f"<h2 style='text-align:center;'>{formatar(st.session_state.tempo_total)}</h2>",
+        unsafe_allow_html=True
+    )
+
+    # Atualiza automaticamente o cronômetro (sem precisar clicar)
+    st.experimental_rerun()

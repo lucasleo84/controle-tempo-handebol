@@ -242,12 +242,12 @@ with abas[1]:
                 st.info("Edição de titulares liberada.")
 
 # =====================================================
-# ABA 3 — CONTROLE DO JOGO (entradas, saídas e penalidades)
+# ABA 3 — CONTROLE DO JOGO (Equipes lado a lado)
 # =====================================================
-import time, json
+import json
 import streamlit.components.v1 as components
 
-# --- Funções auxiliares ---
+# Funções auxiliares
 def atualizar_estado(eq, numero, novo_estado):
     for j in st.session_state["equipes"][eq]:
         if j["numero"] == numero:
@@ -257,7 +257,7 @@ def atualizar_estado(eq, numero, novo_estado):
 def jogadores_por_estado(eq, estado):
     return [j["numero"] for j in st.session_state["equipes"][eq] if j["estado"] == estado and j["elegivel"]]
 
-# --- Cronômetro JS fixo (mantido do modelo anterior) ---
+# Cronômetro JS fixo
 def render_cronometro_js():
     iniciado = "true" if st.session_state["iniciado"] else "false"
     base_elapsed = float(st.session_state["cronometro"])
@@ -265,12 +265,10 @@ def render_cronometro_js():
 
     st.markdown("""
         <style>
-        .cronofixo { position: sticky; top: 0; z-index: 999; text-align:center; padding:6px 0 0 0; background:#fff; border-bottom:1px solid #e5e7eb; }
-        .digital {
-            font-family: 'Courier New', monospace; font-size: 36px; font-weight: bold;
-            color: #FFD700; background:#000; padding: 6px 20px; border-radius: 6px;
-            display:inline-block; letter-spacing: 2px; box-shadow: 0 0 10px rgba(255,215,0,.5);
-        }
+        .cronofixo { position: sticky; top: 0; z-index: 999; text-align:center; padding:4px; background:#fff; border-bottom:1px solid #e5e7eb; }
+        .digital { font-family: 'Courier New', monospace; font-size: 32px; font-weight: bold;
+                   color: #FFD700; background:#000; padding: 4px 18px; border-radius: 6px;
+                   display:inline-block; letter-spacing: 2px; box-shadow: 0 0 10px rgba(255,215,0,.5);}
         </style>
     """, unsafe_allow_html=True)
 
@@ -303,15 +301,14 @@ def render_cronometro_js():
       }})();
     </script>
     """
-    components.html(html, height=68)
+    components.html(html, height=64)
 
-# --- Cronômetro 2 minutos com som ---
+# Cronômetro 2 minutos
 def render_cronometro_exclusao():
     html = """
-    <div style="text-align:center;margin-top:20px;">
-      <div id="exclusao" style="
-        font-family:'Courier New';font-size:30px;color:#FF3333;
-        background:#111;padding:8px 16px;border-radius:8px;display:inline-block;
+    <div style="text-align:center;">
+      <div id="exclusao" style="font-family:'Courier New';font-size:20px;color:#FF3333;
+        background:#111;padding:4px 8px;border-radius:6px;display:inline-block;
         text-shadow:0 0 10px red;">⏱ 02:00</div>
     </div>
     <audio id="alarme" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
@@ -332,66 +329,75 @@ def render_cronometro_exclusao():
       }, 1000);
     </script>
     """
-    components.html(html, height=120)
+    components.html(html, height=100)
 
-# --- Inicialização ---
-with abas[2]:
-    st.subheader("Controle do Jogo")
-    render_cronometro_js()
+# Painel de uma equipe
+def painel(eq, cor):
+    st.markdown(
+        f"<h4 style='text-align:center; color:{cor}; margin-bottom:8px;'>Equipe {eq}</h4>",
+        unsafe_allow_html=True
+    )
 
-    eq = st.radio("Selecione equipe", ["A", "B"], horizontal=True)
     jogando = jogadores_por_estado(eq, "jogando")
     banco = jogadores_por_estado(eq, "banco")
     excluidos = jogadores_por_estado(eq, "excluido")
 
-    st.divider()
+    col1, col2, col3 = st.columns([1,1,1])
 
-    col1, col2, col3 = st.columns(3)
-
-    # ------------------ SUBSTITUIÇÃO ------------------
+    # Substituição
     with col1:
-        st.markdown("### 🔁 Substituição")
+        st.markdown("**🔁 Substituição**")
         sai = st.selectbox("Sai", jogando, key=f"sai_{eq}")
         entra = st.selectbox("Entra", banco, key=f"entra_{eq}")
-        if st.button("Confirmar Substituição", key=f"sub_{eq}"):
+        if st.button("Confirmar", key=f"sub_{eq}"):
             if sai and entra:
                 atualizar_estado(eq, sai, "banco")
                 atualizar_estado(eq, entra, "jogando")
-                st.success(f"Substituição realizada: Sai {sai}, Entra {entra}")
+                st.success(f"Sai {sai}, Entra {entra}")
 
-    # ------------------ EXCLUSÃO ------------------
+    # Exclusão e Completou lado a lado
     with col2:
-        st.markdown("### ⛔ Exclusão (2 minutos)")
+        st.markdown("**⏱ 2 minutos**")
         jogador_ex = st.selectbox("Jogador", jogando, key=f"exc_{eq}")
-        if st.button("Aplicar Exclusão", key=f"btn_exc_{eq}"):
+        if st.button("Aplicar", key=f"btn_exc_{eq}"):
             if jogador_ex:
                 atualizar_estado(eq, jogador_ex, "excluido")
-                st.warning(f"Jogador {jogador_ex} excluído por 2 minutos.")
+                st.warning(f"{jogador_ex} fora por 2 minutos")
                 render_cronometro_exclusao()
 
-    # ------------------ EXPULSÃO ------------------
+        st.markdown("<hr style='margin:6px 0;'>", unsafe_allow_html=True)
+        st.markdown("**✅ Completou / Retorna**")
+        elegiveis_retorno = jogadores_por_estado(eq, "excluido") + jogadores_por_estado(eq, "banco")
+        jogador_comp = st.selectbox("Jogador que retorna", elegiveis_retorno, key=f"comp_{eq}")
+        if st.button("Confirmar Retorno", key=f"btn_comp_{eq}"):
+            if jogador_comp:
+                atualizar_estado(eq, jogador_comp, "jogando")
+                st.success(f"{jogador_comp} voltou ao jogo")
+
+    # Expulsão
     with col3:
-        st.markdown("### 🟥 Expulsão")
+        st.markdown("**🟥 Expulsão**")
         jogador_exp = st.selectbox("Jogador", jogando + excluidos + banco, key=f"exp_{eq}")
-        if st.button("Confirmar Expulsão", key=f"btn_exp_{eq}"):
+        if st.button("Expulsar", key=f"btn_exp_{eq}"):
             if jogador_exp:
                 atualizar_estado(eq, jogador_exp, "expulso")
                 for j in st.session_state["equipes"][eq]:
                     if j["numero"] == jogador_exp:
                         j["elegivel"] = False
-                st.error(f"Jogador {jogador_exp} expulso do jogo!")
+                st.error(f"{jogador_exp} expulso do jogo!")
 
-    st.divider()
+# ---------------------- ABA PRINCIPAL ----------------------
+with abas[2]:
+    st.subheader("Controle do Jogo")
+    render_cronometro_js()
+    st.markdown("<br>", unsafe_allow_html=True)
 
-    # ------------------ COMPLETOU ------------------
-    st.markdown("### ✅ Completou 2 minutos")
-    # Agora mostra jogadores excluídos + banco
-    elegiveis_retorno = jogadores_por_estado(eq, "excluido") + jogadores_por_estado(eq, "banco")
-    if not elegiveis_retorno:
-        st.info("Nenhum jogador disponível para retorno ou substituição.")
-    else:
-        jogador_comp = st.selectbox("Jogador que retorna ao jogo", elegiveis_retorno, key=f"comp_{eq}")
-        if st.button("Confirmar Retorno", key=f"btn_comp_{eq}"):
-            if jogador_comp:
-                atualizar_estado(eq, jogador_comp, "jogando")
-                st.success(f"Jogador {jogador_comp} entrou no jogo (retorno ou substituição após 2 minutos).")
+    # Recupera as cores definidas na aba de configuração
+    cor_a = st.session_state.get("cor_A", "#1976D2")  # azul padrão
+    cor_b = st.session_state.get("cor_B", "#D32F2F")  # vermelho padrão
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        painel("A", cor_a)
+    with col_b:
+        painel("B", cor_b)

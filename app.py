@@ -123,8 +123,7 @@ def render_cronometro_js():
 
 # =====================================================
 # ABA 1 — CONFIGURAÇÃO DA EQUIPE
-# (exatamente como você mandou)
-# =====================================================
+# # =====================================================
 with abas[0]:
     st.subheader("Configuração da Equipe")
 
@@ -193,7 +192,6 @@ with abas[0]:
 
 # =====================================================
 # ABA 2 — DEFINIR TITULARES
-# (exatamente como você mandou)
 # =====================================================
 with abas[1]:
     st.subheader("Definir Titulares")
@@ -244,134 +242,115 @@ with abas[1]:
                 st.info("Edição de titulares liberada.")
 
 # =====================================================
-# ABA 3 — CONTROLE DO JOGO (cronômetro 100% estável)
+# ABA 3 — CONTROLE DO JOGO (cronômetro estável e integrado)
 # =====================================================
+import time
 import streamlit.components.v1 as components
-import json, time
 
 with abas[2]:
     st.subheader("Controle do Jogo")
 
-    # Estado inicial
+    # --------------------------
+    # ESTADO DO CRONÔMETRO
+    # --------------------------
+    if "rodando" not in st.session_state:
+        st.session_state.rodando = False
+    if "inicio" not in st.session_state:
+        st.session_state.inicio = None
+    if "tempo_total" not in st.session_state:
+        st.session_state.tempo_total = 0
     if "tempo_salvo" not in st.session_state:
         st.session_state.tempo_salvo = []
     if "periodo" not in st.session_state:
         st.session_state.periodo = "1º Tempo"
 
-    # --- Estilo fixo do cronômetro ---
-    st.markdown("""
-        <style>
-        .cronometro-box {
-            position: sticky;
-            top: 0;
-            background-color: #111;
-            border-radius: 10px;
-            padding: 10px;
-            text-align: center;
-            color: white;
-            font-family: 'Courier New', monospace;
-            z-index: 100;
-        }
-        .cronometro {
-            font-size: 48px;
-            color: #FFD700;
-            text-shadow: 0 0 10px #FFD700;
-            margin: 8px 0;
-        }
-        .btn {
-            background-color: #222;
-            color: white;
-            border: 1px solid #555;
-            padding: 6px 10px;
-            margin: 4px;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-        .btn:hover { background-color: #333; }
-        </style>
-    """, unsafe_allow_html=True)
+    # --------------------------
+    # FUNÇÕES DE CONTROLE
+    # --------------------------
+    def iniciar():
+        if not st.session_state.rodando:
+            st.session_state.rodando = True
+            st.session_state.inicio = time.time()
+            st.toast("Cronômetro iniciado ▶️")
 
-    # --- HTML + JavaScript do cronômetro ---
-    js_html = f"""
-    <div class="cronometro-box">
-        <div id="cronometro" class="cronometro">00:00</div>
-        <div>
-            <button class="btn" onclick="iniciar()">▶️ Iniciar</button>
-            <button class="btn" onclick="pausar()">⏸️ Pausar</button>
-            <button class="btn" onclick="zerar()">🔁 Zerar</button>
-            <button class="btn" onclick="salvar()">💾 Salvar</button>
+    def pausar():
+        if st.session_state.rodando:
+            st.session_state.tempo_total += time.time() - st.session_state.inicio
+            st.session_state.rodando = False
+            st.toast("Cronômetro pausado ⏸️")
+
+    def zerar():
+        st.session_state.rodando = False
+        st.session_state.tempo_total = 0
+        st.session_state.inicio = None
+        st.toast("Cronômetro zerado 🔁")
+
+    def tempo_atual():
+        if st.session_state.rodando:
+            return st.session_state.tempo_total + (time.time() - st.session_state.inicio)
+        else:
+            return st.session_state.tempo_total
+
+    # --------------------------
+    # BOTÕES DE CONTROLE
+    # --------------------------
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        if st.button("▶️ Iniciar"):
+            iniciar()
+    with c2:
+        if st.button("⏸️ Pausar"):
+            pausar()
+    with c3:
+        if st.button("🔁 Zerar"):
+            zerar()
+    with c4:
+        st.session_state.periodo = st.selectbox(
+            "Período",
+            ["1º Tempo", "2º Tempo"],
+            index=0 if st.session_state.periodo == "1º Tempo" else 1,
+            key="periodo_select",
+        )
+
+    # --------------------------
+    # CRONÔMETRO VISUAL (JS)
+    # --------------------------
+    tempo_segundos = int(tempo_atual())
+    minutos = tempo_segundos // 60
+    segundos = tempo_segundos % 60
+
+    components.html(f"""
+        <div style="
+            position:sticky;top:0;text-align:center;background:#000;
+            padding:10px;border-radius:10px;color:#FFD700;
+            font-family:'Courier New', monospace;font-size:48px;
+            text-shadow:0 0 10px #FFD700;
+            ">
+            ⏱ {minutos:02d}:{segundos:02d}
         </div>
-        <div style="margin-top:8px;">
-            <label>Período:</label>
-            <select id="periodo">
-                <option value="1º Tempo" {'selected' if st.session_state.periodo == '1º Tempo' else ''}>1º Tempo</option>
-                <option value="2º Tempo" {'selected' if st.session_state.periodo == '2º Tempo' else ''}>2º Tempo</option>
-            </select>
-        </div>
-    </div>
+        <script>
+            setInterval(() => {{
+                const el = document.querySelector('div');
+                if (el) el.style.opacity = 1;
+            }}, 1000);
+        </script>
+    """, height=80)
 
-    <script>
-        let segundos = 0;
-        let rodando = false;
-        let intervalo;
+    # --------------------------
+    # SALVAR MARCAÇÃO
+    # --------------------------
+    if st.button("💾 Salvar marcação"):
+        tempo = tempo_atual()
+        st.session_state.tempo_salvo.append({
+            "tempo": tempo,
+            "periodo": st.session_state.periodo
+        })
+        st.success(f"Salvo: {int(tempo // 60):02d}:{int(tempo % 60):02d} — {st.session_state.periodo}")
 
-        function formatar(seg) {{
-            const m = String(Math.floor(seg / 60)).padStart(2, '0');
-            const s = String(seg % 60).padStart(2, '0');
-            return `${{m}}:${{s}}`;
-        }}
-
-        function atualizar() {{
-            document.getElementById("cronometro").innerText = formatar(segundos);
-        }}
-
-        function iniciar() {{
-            if (!rodando) {{
-                rodando = true;
-                intervalo = setInterval(() => {{
-                    segundos++;
-                    atualizar();
-                }}, 1000);
-            }}
-        }}
-
-        function pausar() {{
-            rodando = false;
-            clearInterval(intervalo);
-        }}
-
-        function zerar() {{
-            rodando = false;
-            clearInterval(intervalo);
-            segundos = 0;
-            atualizar();
-        }}
-
-        function salvar() {{
-            const periodo = document.getElementById("periodo").value;
-            const data = {{ tempo: segundos, periodo: periodo }};
-            const input = document.createElement("input");
-            input.type = "hidden";
-            input.name = "cronometro_data";
-            input.value = JSON.stringify(data);
-            document.body.appendChild(input);
-            document.forms[0].submit();
-        }}
-
-        atualizar();
-    </script>
-    """
-
-    # Renderiza o cronômetro
-    components.html(js_html, height=320)
-
-    # Captura dados enviados (sem travar o app)
-    cronometro_json = st.experimental_get_query_params().get("cronometro_data")
-    if cronometro_json:
-        try:
-            data = json.loads(cronometro_json[0])
-            st.session_state.tempo_salvo.append(data)
-            st.session_state.periodo = data["periodo"]
-            st.success(f"Tempo salvo: {data['tempo']} segundos ({data['periodo']})")
-        except Exception:
-            pass
+    # --------------------------
+    # MOSTRAR MARCAÇÕES
+    # --------------------------
+    if st.session_state.tempo_salvo:
+        st.markdown("### Marcações salvas")
+        for i, m in enumerate(st.session_state.tempo_salvo, 1):
+            st.write(f"{i}. {int(m['tempo'] // 60):02d}:{int(m['tempo'] % 60):02d} — {m['periodo']}")

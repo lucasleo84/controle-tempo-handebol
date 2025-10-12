@@ -349,4 +349,7 @@ def render_cronometro_exclusao():
 
 # ---------------------- Painel de cada equipe ----------------------
 def painel(eq, cor):
-    st.markdown(f"<h4 style='text-align:center; color:{cor};'>Equipe {eq}</h4>", unsafe_allow_html
+    st.markdown(
+        f"<h4 style='text-align:center; color:{cor}; margin-bottom:6px;'>Equipe {eq}</h4>",
+        unsafe_allow_html=True
+    )

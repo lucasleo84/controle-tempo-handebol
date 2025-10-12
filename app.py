@@ -122,126 +122,6 @@ def render_cronometro_js():
     components.html(html, height=70)
 
 # =====================================================
-# ABA 1 — CONFIGURAÇÃO DA EQUIPE
-# # =====================================================
-with abas[0]:
-    st.subheader("Configuração da Equipe")
-
-    def ensure_num_list(team_key: str, qtd: int):
-        """Garante que existe uma lista editável de números por equipe e com o tamanho 'qtd'."""
-        list_key = f"numeros_{team_key}"
-        if list_key not in st.session_state:
-            st.session_state[list_key] = [i + 1 for i in range(qtd)]
-        else:
-            nums = st.session_state[list_key]
-            # Ajusta tamanho se usuário mudar 'qtd'
-            if len(nums) < qtd:
-                nums.extend(list(range(len(nums) + 1, qtd + 1)))
-            elif len(nums) > qtd:
-                st.session_state[list_key] = nums[:qtd]
-
-    colA, colB = st.columns(2)
-
-    for eq, col in zip(["A", "B"], [colA, colB]):
-        with col:
-            st.markdown(f"### Equipe {eq}")
-
-            # Nome e quantidade
-            nome = st.text_input(f"Nome da equipe {eq}", key=f"nome_{eq}")
-            qtd = st.number_input(
-                f"Quantidade de jogadores ({eq})",
-                min_value=1, max_value=20, step=1,
-                value=len(st.session_state["equipes"][eq]) or 7,
-                key=f"qtd_{eq}"
-            )
-
-            # Garante lista de números do tamanho certo
-            ensure_num_list(eq, int(qtd))
-
-            # Editor de números (camisetas)
-            st.markdown("**Números das camisetas:**")
-            cols = st.columns(5)
-            for i, num in enumerate(st.session_state[f"numeros_{eq}"]):
-                with cols[i % 5]:
-                    novo = st.number_input(
-                        f"Jogador {i+1}",
-                        min_value=0, max_value=999, step=1,
-                        value=int(num),
-                        key=f"{eq}_num_{i}"
-                    )
-                    st.session_state[f"numeros_{eq}"][i] = int(novo)
-
-            # Cor da equipe
-            cor = st.color_picker(
-                f"Cor da equipe {eq}",
-                value=st.session_state["cores"][eq],
-                key=f"cor_{eq}"
-            )
-            st.session_state["cores"][eq] = cor
-
-            # Salvar/registrar equipe
-            if st.button(f"Salvar equipe {eq}", key=f"save_team_{eq}"):
-                numeros = st.session_state[f"numeros_{eq}"]
-                st.session_state["equipes"][eq] = [
-                    {"numero": int(n), "estado": "banco", "elegivel": True, "exclusoes": 0}
-                    for n in numeros
-                ]
-                st.success(f"Equipe {eq} salva com {len(numeros)} jogadores.")
-                st.session_state["titulares_definidos"][eq] = False
-
-
-# =====================================================
-# ABA 2 — DEFINIR TITULARES
-# =====================================================
-with abas[1]:
-    st.subheader("Definir Titulares")
-
-    for eq in ["A", "B"]:
-        st.markdown(f"### Equipe {eq}")
-
-        jogadores = st.session_state["equipes"][eq]
-        if not jogadores:
-            st.info(f"Cadastre primeiro a equipe {eq} na aba anterior.")
-            continue
-
-        numeros = [j["numero"] for j in jogadores]
-
-        # Mostra aviso se já estiver travado
-        if st.session_state["titulares_definidos"][eq]:
-            st.success("Titulares já registrados. Clique em **Corrigir** para editar.")
-            disabled = True
-        else:
-            disabled = False
-
-        # Multiselect com os números (caixinha “adicionando um a um”)
-        tit_key = f"titulares_sel_{eq}"
-        titulares_sel = st.multiselect(
-            "Selecione titulares (adicione um a um)",
-            options=numeros,
-            default=[j["numero"] for j in jogadores if j.get("estado") == "jogando"],
-            key=tit_key,
-            disabled=disabled
-        )
-
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button(f"Registrar titulares ({eq})", key=f"registrar_tit_{eq}", disabled=disabled):
-                if not titulares_sel:
-                    st.error("Selecione pelo menos 1 titular.")
-                else:
-                    # Define estados: titulares jogando, demais banco
-                    sel = set(map(int, titulares_sel))
-                    for j in st.session_state["equipes"][eq]:
-                        j["estado"] = "jogando" if j["numero"] in sel else "banco"
-                        j["elegivel"] = True
-                    st.session_state["titulares_definidos"][eq] = True
-                    st.success(f"Titulares da equipe {eq} registrados.")
-        with c2:
-            if st.button(f"Corrigir ({eq})", key=f"corrigir_tit_{eq}"):
-                st.session_state["titulares_definidos"][eq] = False
-                st.info("Edição de titulares liberada.")
-
-# =====================================================
 # ABA 3 — CONTROLE DO JOGO (equipes lado a lado + cronômetro JS)
 # =====================================================
 import streamlit.components.v1 as components
@@ -282,6 +162,189 @@ def render_cronometro_js():
         }
         .digital {
             font-family:'Courier New', monospace; font-size:36px; font-weight:bold;
-            color:#FFD700; background:#000; padding:6px 20px; border-radiu
+            color:#FFD700; background:#000; padding:6px 20px; border-radius:8px;
+            display:inline-block; letter-spacing:2px;
+            box-shadow:0 0 10px rgba(255,215,0,.7);
+        }
+        .btn-painel{
+            display:inline-block; background:#222; color:white; border:1px solid #555;
+            padding:4px 10px; margin:2px; border-radius:5px; cursor:pointer;
+            font-size:13px;
+        }
+        .btn-painel:hover{ background:#333; }
+        </style>
+    """, unsafe_allow_html=True)
 
+    html = f"""
+    <div class="cronofixo">
+        <div id="cronovisual" class="digital">⏱ 00:00</div><br>
+        <button class="btn-painel" onclick="iniciar()">▶️ Iniciar</button>
+        <button class="btn-painel" onclick="pausar()">⏸️ Pausar</button>
+        <button class="btn-painel" onclick="zerar()">🔁 Zerar</button>
+    </div>
+
+    <script>
+      let segundos = {base_elapsed};
+      let rodando = {iniciado};
+      let startEpoch = {json.dumps(start_epoch)};
+      let timer = null;
+
+      function fmt(sec){{
+        sec = Math.max(0, Math.floor(sec));
+        const m = Math.floor(sec/60), s = sec % 60;
+        return (m<10?'0':'')+m+':' + (s<10?'0':'')+s;
+      }}
+
+      function atualizar(){{
+        document.getElementById("cronovisual").innerText = '⏱ ' + fmt(segundos);
+      }}
+
+      function tick(){{
+        if(rodando && startEpoch){{
+          const agora = Date.now()/1000;
+          segundos = {base_elapsed} + (agora - startEpoch);
+          atualizar();
+        }}
+      }}
+
+      function iniciar(){{
+        if(!rodando){{
+          rodando = true;
+          startEpoch = Date.now()/1000;
+        }}
+      }}
+
+      function pausar(){{
+        if(rodando){{
+          const agora = Date.now()/1000;
+          segundos = {base_elapsed} + (agora - startEpoch);
+          rodando = false;
+          atualizar();
+        }}
+      }}
+
+      function zerar(){{
+        rodando = false;
+        segundos = 0;
+        atualizar();
+      }}
+
+      atualizar();
+      if(window.__cronovisual_timer) clearInterval(window.__cronovisual_timer);
+      window.__cronovisual_timer = setInterval(tick, 250);
+    </script>
+    """
+    components.html(html, height=120)
+
+# ---------------------- Cronômetro 2 minutos ----------------------
+def render_cronometro_exclusao():
+    html = """
+    <div style="text-align:center;">
+      <div id="exclusao" style="font-family:'Courier New';font-size:18px;color:#FF3333;
+        background:#111;padding:4px 8px;border-radius:6px;display:inline-block;
+        text-shadow:0 0 10px red;">⏱ 02:00</div>
+    </div>
+    <audio id="alarme" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+    <script>
+      let t = 120;
+      const el = document.getElementById('exclusao');
+      const beep = document.getElementById('alarme');
+      const timer = setInterval(() => {
+        t--;
+        const m = String(Math.floor(t/60)).padStart(2,'0');
+        const s = String(t%60).padStart(2,'0');
+        el.textContent = '⏱ ' + m + ':' + s;
+        if (t <= 0) {
+          clearInterval(timer);
+          el.textContent = '✅ Tempo cumprido';
+          beep.play();
+        }
+      }, 1000);
+    </script>
+    """
+    components.html(html, height=90)
+
+# ---------------------- Painel de cada equipe ----------------------
+def painel(eq, cor):
+    st.markdown(
+        f"<h4 style='text-align:center; color:{cor}; margin-bottom:6px;'>Equipe {eq}</h4>",
+        unsafe_allow_html=True
+    )
+
+    jogando = jogadores_por_estado(eq, "jogando")
+    banco = jogadores_por_estado(eq, "banco")
+    excluidos = jogadores_por_estado(eq, "excluido")
+
+    col1, col2, col3 = st.columns([1, 1, 1])
+
+    # Substituição
+    with col1:
+        st.markdown("**🔁 Substituição**")
+        sai = st.selectbox("Sai", jogando, key=f"sai_{eq}")
+        entra = st.selectbox("Entra", banco, key=f"entra_{eq}")
+        if st.button("Confirmar", key=f"sub_{eq}"):
+            if sai and entra:
+                atualizar_estado(eq, sai, "banco")
+                atualizar_estado(eq, entra, "jogando")
+                st.success(f"Sai {sai}, Entra {entra}")
+
+    # 2 minutos + Completou
+    with col2:
+        st.markdown("**⏱ 2 minutos**")
+        jogador_ex = st.selectbox("Jogador", jogando, key=f"exc_{eq}")
+        if st.button("Aplicar", key=f"btn_exc_{eq}"):
+            if jogador_ex:
+                atualizar_estado(eq, jogador_ex, "excluido")
+                st.warning(f"{jogador_ex} fora por 2 minutos")
+                render_cronometro_exclusao()
+
+        st.markdown("<hr style='margin:4px 0;'>", unsafe_allow_html=True)
+        st.markdown("**✅ Completou / Retorna**")
+        elegiveis = jogadores_por_estado(eq, "excluido") + jogadores_por_estado(eq, "banco")
+        jogador_comp = st.selectbox("Jogador que retorna", elegiveis, key=f"comp_{eq}")
+        if st.button("Confirmar Retorno", key=f"btn_comp_{eq}"):
+            if jogador_comp:
+                atualizar_estado(eq, jogador_comp, "jogando")
+                st.success(f"{jogador_comp} voltou ao jogo")
+
+    # Expulsão
+    with col3:
+        st.markdown("**🟥 Expulsão**")
+        jogador_exp = st.selectbox("Jogador", jogando + banco + excluidos, key=f"exp_{eq}")
+        if st.button("Expulsar", key=f"btn_exp_{eq}"):
+            if jogador_exp:
+                atualizar_estado(eq, jogador_exp, "expulso")
+                for j in st.session_state["equipes"][eq]:
+                    if j["numero"] == jogador_exp:
+                        j["elegivel"] = False
+                st.error(f"{jogador_exp} expulso do jogo!")
+
+# ---------------------- Renderização da Aba ----------------------
+with abas[2]:
+    st.subheader("Controle do Jogo")
+
+    # Botão de inverter lados
+    if st.button("🔄 Inverter Lados"):
+        st.session_state.invertido = not st.session_state.invertido
+
+    # Cronômetro fixo com botões
+    render_cronometro_js()
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Cores e colunas
+    cor_a = st.session_state["cores"].get("A", "#1976D2")
+    cor_b = st.session_state["cores"].get("B", "#D32F2F")
+
+    if not st.session_state.invertido:
+        colA, colB = st.columns(2)
+        with colA:
+            painel("A", cor_a)
+        with colB:
+            painel("B", cor_b)
+    else:
+        colB, colA = st.columns(2)
+        with colB:
+            painel("B", cor_b)
+        with colA:
+            painel("A", cor_a)
 

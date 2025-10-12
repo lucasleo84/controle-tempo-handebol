@@ -202,3 +202,19 @@ with abas[2]:
 
     # Atualiza automaticamente o cronômetro (sem precisar clicar)
     st.experimental_rerun()
+
+# =====================================================
+# ABA 4 — VISUALIZAÇÃO DE DADOS
+# =====================================================
+with abas[3]:
+    st.subheader("Visualização de Dados")
+
+    for eq in ["A", "B"]:
+        st.markdown(f"### Equipe {eq}")
+        if not st.session_state["equipes"][eq]:
+            st.info("Nenhuma equipe registrada.")
+            continue
+
+        for j in st.session_state["equipes"][eq]:
+            tempo_jogado = j.get("tempo_jogado", 0.0)
+            st.text(f"Jogador {j['numero']} | Estado: {j['estado']} | Tempo jogado: {tempo_jogado/60:.1f} min")

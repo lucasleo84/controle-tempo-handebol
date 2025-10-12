@@ -242,45 +242,23 @@ with abas[1]:
                 st.info("Edição de titulares liberada.")
 
 # =====================================================
-# ABA 3 — CONTROLE DO JOGO (Cronômetro JS estável)
+# ABA 3 — CONTROLE DO JOGO (entradas, saídas e penalidades)
 # =====================================================
 import time, json
-import streamlit as st
 import streamlit.components.v1 as components
 
-# --- helpers mínimos (adicione no topo do arquivo caso ainda não existam) ---
-def _init_clock_state():
-    if "iniciado" not in st.session_state: st.session_state["iniciado"] = False
-    if "ultimo_tick" not in st.session_state: st.session_state["ultimo_tick"] = time.time()
-    if "cronometro" not in st.session_state: st.session_state["cronometro"] = 0.0
-    if "periodo" not in st.session_state: st.session_state["periodo"] = "1º Tempo"
-    if "marcacoes" not in st.session_state: st.session_state["marcacoes"] = []  # snapshots
+# --- Funções auxiliares ---
+def atualizar_estado(eq, numero, novo_estado):
+    for j in st.session_state["equipes"][eq]:
+        if j["numero"] == numero:
+            j["estado"] = novo_estado
+            return
 
-def tempo_logico_atual() -> float:
-    if st.session_state["iniciado"]:
-        return st.session_state["cronometro"] + (time.time() - st.session_state["ultimo_tick"])
-    return st.session_state["cronometro"]
+def jogadores_por_estado(eq, estado):
+    return [j["numero"] for j in st.session_state["equipes"][eq] if j["estado"] == estado and j["elegivel"]]
 
-def iniciar():
-    if not st.session_state["iniciado"]:
-        st.session_state["iniciado"] = True
-        st.session_state["ultimo_tick"] = time.time()
-        st.toast("⏱️ Iniciado", icon="▶️")
-
-def pausar():
-    if st.session_state["iniciado"]:
-        st.session_state["cronometro"] = tempo_logico_atual()
-        st.session_state["iniciado"] = False
-        st.toast("⏸️ Pausado", icon="⏸️")
-
-def zerar():
-    st.session_state["iniciado"] = False
-    st.session_state["cronometro"] = 0.0
-    st.session_state["ultimo_tick"] = time.time()
-    st.toast("🔁 Zerado", icon="🔁")
-
+# --- Cronômetro JS fixo (mantido do modelo anterior) ---
 def render_cronometro_js():
-    # Passa o estado Python -> JS e o JS atualiza a cada 250ms no navegador
     iniciado = "true" if st.session_state["iniciado"] else "false"
     base_elapsed = float(st.session_state["cronometro"])
     start_epoch = float(st.session_state["ultimo_tick"]) if st.session_state["iniciado"] else None
@@ -305,16 +283,15 @@ def render_cronometro_js():
         const el = document.getElementById('cronovisual');
         const iniciado = {iniciado};
         const baseElapsed = {json.dumps(base_elapsed)};
-        const startEpoch = {json.dumps(start_epoch)}; // epoch seg ou null
-
-        function fmt(sec){{
+        const startEpoch = {json.dumps(start_epoch)};
+        function fmt(sec) {{
           sec = Math.max(0, Math.floor(sec));
           const m = Math.floor(sec/60), s = sec % 60;
           return (m<10?'0':'')+m+':' + (s<10?'0':'')+s;
         }}
-        function tick(){{
+        function tick() {{
           let elapsed = baseElapsed;
-          if (iniciado && startEpoch){{
+          if (iniciado && startEpoch) {{
             const now = Date.now()/1000;
             elapsed = baseElapsed + (now - startEpoch);
           }}
@@ -328,39 +305,93 @@ def render_cronometro_js():
     """
     components.html(html, height=68)
 
-# ---------- A B A  3 ----------
+# --- Cronômetro 2 minutos com som ---
+def render_cronometro_exclusao():
+    html = """
+    <div style="text-align:center;margin-top:20px;">
+      <div id="exclusao" style="
+        font-family:'Courier New';font-size:30px;color:#FF3333;
+        background:#111;padding:8px 16px;border-radius:8px;display:inline-block;
+        text-shadow:0 0 10px red;">⏱ 02:00</div>
+    </div>
+    <audio id="alarme" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+    <script>
+      let t = 120;
+      const el = document.getElementById('exclusao');
+      const beep = document.getElementById('alarme');
+      const timer = setInterval(() => {
+        t--;
+        const m = String(Math.floor(t/60)).padStart(2,'0');
+        const s = String(t%60).padStart(2,'0');
+        el.textContent = '⏱ ' + m + ':' + s;
+        if (t <= 0) {
+          clearInterval(timer);
+          el.textContent = '✅ Tempo cumprido';
+          beep.play();
+        }
+      }, 1000);
+    </script>
+    """
+    components.html(html, height=120)
+
+# --- Inicialização ---
 with abas[2]:
-    _init_clock_state()
     st.subheader("Controle do Jogo")
-
-    # Botões primeiro (para o JS receber estado já atualizado)
-    b1, b2, b3, b4 = st.columns([1,1,1,1])
-    with b1:
-        if st.button("▶️ Iniciar", key="clk_start"): iniciar()
-    with b2:
-        if st.button("⏸️ Pausar", key="clk_pause"): pausar()
-    with b3:
-        if st.button("🔁 Zerar", key="clk_reset"): zerar()
-    with b4:
-        st.session_state["periodo"] = st.selectbox(
-            "Período", ["1º Tempo","2º Tempo"],
-            index=0 if st.session_state["periodo"]=="1º Tempo" else 1,
-            key="sel_periodo"
-        )
-
-    # Render cronômetro JS com o estado pós-botões
     render_cronometro_js()
 
-    # Salvar marcação (snapshot do tempo atual + período)
-    if st.button("💾 Salvar marcação", key="clk_mark"):
-        t = tempo_logico_atual()
-        st.session_state["marcacoes"].append({"periodo": st.session_state["periodo"], "elapsed": float(t), "ts": time.time()})
-        mm, ss = int(t//60), int(t%60)
-        st.success(f"Salvo: {mm:02d}:{ss:02d} — {st.session_state['periodo']}")
+    eq = st.radio("Selecione equipe", ["A", "B"], horizontal=True)
+    jogando = jogadores_por_estado(eq, "jogando")
+    banco = jogadores_por_estado(eq, "banco")
+    excluidos = jogadores_por_estado(eq, "excluido")
 
-    # (Opcional) Lista rápida das marcações
-    if st.session_state["marcacoes"]:
-        st.caption("Marcações salvas:")
-        for i, m in enumerate(st.session_state["marcacoes"], 1):
-            mm, ss = int(m["elapsed"]//60), int(m["elapsed"]%60)
-            st.write(f"{i}. {mm:02d}:{ss:02d} — {m['periodo']}")
+    st.divider()
+
+    col1, col2, col3 = st.columns(3)
+
+    # ------------------ SUBSTITUIÇÃO ------------------
+    with col1:
+        st.markdown("### 🔁 Substituição")
+        sai = st.selectbox("Sai", jogando, key=f"sai_{eq}")
+        entra = st.selectbox("Entra", banco, key=f"entra_{eq}")
+        if st.button("Confirmar Substituição", key=f"sub_{eq}"):
+            if sai and entra:
+                atualizar_estado(eq, sai, "banco")
+                atualizar_estado(eq, entra, "jogando")
+                st.success(f"Substituição realizada: Sai {sai}, Entra {entra}")
+
+    # ------------------ EXCLUSÃO ------------------
+    with col2:
+        st.markdown("### ⛔ Exclusão (2 minutos)")
+        jogador_ex = st.selectbox("Jogador", jogando, key=f"exc_{eq}")
+        if st.button("Aplicar Exclusão", key=f"btn_exc_{eq}"):
+            if jogador_ex:
+                atualizar_estado(eq, jogador_ex, "excluido")
+                st.warning(f"Jogador {jogador_ex} excluído por 2 minutos.")
+                render_cronometro_exclusao()
+
+    # ------------------ EXPULSÃO ------------------
+    with col3:
+        st.markdown("### 🟥 Expulsão")
+        jogador_exp = st.selectbox("Jogador", jogando + excluidos + banco, key=f"exp_{eq}")
+        if st.button("Confirmar Expulsão", key=f"btn_exp_{eq}"):
+            if jogador_exp:
+                atualizar_estado(eq, jogador_exp, "expulso")
+                for j in st.session_state["equipes"][eq]:
+                    if j["numero"] == jogador_exp:
+                        j["elegivel"] = False
+                st.error(f"Jogador {jogador_exp} expulso do jogo!")
+
+    st.divider()
+
+    # ------------------ COMPLETOU ------------------
+    st.markdown("### ✅ Completou 2 minutos")
+    # Agora mostra jogadores excluídos + banco
+    elegiveis_retorno = jogadores_por_estado(eq, "excluido") + jogadores_por_estado(eq, "banco")
+    if not elegiveis_retorno:
+        st.info("Nenhum jogador disponível para retorno ou substituição.")
+    else:
+        jogador_comp = st.selectbox("Jogador que retorna ao jogo", elegiveis_retorno, key=f"comp_{eq}")
+        if st.button("Confirmar Retorno", key=f"btn_comp_{eq}"):
+            if jogador_comp:
+                atualizar_estado(eq, jogador_comp, "jogando")
+                st.success(f"Jogador {jogador_comp} entrou no jogo (retorno ou substituição após 2 minutos).")

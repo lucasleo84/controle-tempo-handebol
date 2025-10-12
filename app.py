@@ -276,7 +276,7 @@ def render_cronometro_js():
     st.markdown("""
         <style>
         .cronofixo { 
-            position: sticky; top: 0; z-index: 999; text-align:center; padding:4px;
+            position: sticky; top: 0; z-index: 999; text-align:center; padding:6px;
             background:#111; border-bottom:2px solid #FFD700;
         }
         .digital { 
@@ -318,3 +318,35 @@ def render_cronometro_js():
     </script>
     """
     components.html(html, height=70)
+
+# ---------------------- Cronômetro 2 minutos ----------------------
+def render_cronometro_exclusao():
+    html = """
+    <div style="text-align:center;">
+      <div id="exclusao" style="font-family:'Courier New';font-size:18px;color:#FF3333;
+        background:#111;padding:4px 8px;border-radius:6px;display:inline-block;
+        text-shadow:0 0 10px red;">⏱ 02:00</div>
+    </div>
+    <audio id="alarme" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+    <script>
+      let t = 120;
+      const el = document.getElementById('exclusao');
+      const beep = document.getElementById('alarme');
+      const timer = setInterval(() => {
+        t--;
+        const m = String(Math.floor(t/60)).padStart(2,'0');
+        const s = String(t%60).padStart(2,'0');
+        el.textContent = '⏱ ' + m + ':' + s;
+        if (t <= 0) {
+          clearInterval(timer);
+          el.textContent = '✅ Tempo cumprido';
+          beep.play();
+        }
+      }, 1000);
+    </script>
+    """
+    components.html(html, height=90)
+
+# ---------------------- Painel de cada equipe ----------------------
+def painel(eq, cor):
+    st.markdown(f"<h4 style='text-align:center; color:{cor};'>Equipe {eq}</h4>", unsafe_allow_html

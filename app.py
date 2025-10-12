@@ -242,115 +242,125 @@ with abas[1]:
                 st.info("Edição de titulares liberada.")
 
 # =====================================================
-# ABA 3 — CONTROLE DO JOGO (cronômetro estável e integrado)
+# ABA 3 — CONTROLE DO JOGO (Cronômetro JS estável)
 # =====================================================
-import time
+import time, json
+import streamlit as st
 import streamlit.components.v1 as components
 
+# --- helpers mínimos (adicione no topo do arquivo caso ainda não existam) ---
+def _init_clock_state():
+    if "iniciado" not in st.session_state: st.session_state["iniciado"] = False
+    if "ultimo_tick" not in st.session_state: st.session_state["ultimo_tick"] = time.time()
+    if "cronometro" not in st.session_state: st.session_state["cronometro"] = 0.0
+    if "periodo" not in st.session_state: st.session_state["periodo"] = "1º Tempo"
+    if "marcacoes" not in st.session_state: st.session_state["marcacoes"] = []  # snapshots
+
+def tempo_logico_atual() -> float:
+    if st.session_state["iniciado"]:
+        return st.session_state["cronometro"] + (time.time() - st.session_state["ultimo_tick"])
+    return st.session_state["cronometro"]
+
+def iniciar():
+    if not st.session_state["iniciado"]:
+        st.session_state["iniciado"] = True
+        st.session_state["ultimo_tick"] = time.time()
+        st.toast("⏱️ Iniciado", icon="▶️")
+
+def pausar():
+    if st.session_state["iniciado"]:
+        st.session_state["cronometro"] = tempo_logico_atual()
+        st.session_state["iniciado"] = False
+        st.toast("⏸️ Pausado", icon="⏸️")
+
+def zerar():
+    st.session_state["iniciado"] = False
+    st.session_state["cronometro"] = 0.0
+    st.session_state["ultimo_tick"] = time.time()
+    st.toast("🔁 Zerado", icon="🔁")
+
+def render_cronometro_js():
+    # Passa o estado Python -> JS e o JS atualiza a cada 250ms no navegador
+    iniciado = "true" if st.session_state["iniciado"] else "false"
+    base_elapsed = float(st.session_state["cronometro"])
+    start_epoch = float(st.session_state["ultimo_tick"]) if st.session_state["iniciado"] else None
+
+    st.markdown("""
+        <style>
+        .cronofixo { position: sticky; top: 0; z-index: 999; text-align:center; padding:6px 0 0 0; background:#fff; border-bottom:1px solid #e5e7eb; }
+        .digital {
+            font-family: 'Courier New', monospace; font-size: 36px; font-weight: bold;
+            color: #FFD700; background:#000; padding: 6px 20px; border-radius: 6px;
+            display:inline-block; letter-spacing: 2px; box-shadow: 0 0 10px rgba(255,215,0,.5);
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    html = f"""
+    <div class="cronofixo">
+      <div id="cronovisual" class="digital">⏱ 00:00</div>
+    </div>
+    <script>
+      (function(){{
+        const el = document.getElementById('cronovisual');
+        const iniciado = {iniciado};
+        const baseElapsed = {json.dumps(base_elapsed)};
+        const startEpoch = {json.dumps(start_epoch)}; // epoch seg ou null
+
+        function fmt(sec){{
+          sec = Math.max(0, Math.floor(sec));
+          const m = Math.floor(sec/60), s = sec % 60;
+          return (m<10?'0':'')+m+':' + (s<10?'0':'')+s;
+        }}
+        function tick(){{
+          let elapsed = baseElapsed;
+          if (iniciado && startEpoch){{
+            const now = Date.now()/1000;
+            elapsed = baseElapsed + (now - startEpoch);
+          }}
+          el.textContent = '⏱ ' + fmt(elapsed);
+        }}
+        tick();
+        if (window.__cronovisual_timer) clearInterval(window.__cronovisual_timer);
+        window.__cronovisual_timer = setInterval(tick, 250);
+      }})();
+    </script>
+    """
+    components.html(html, height=68)
+
+# ---------- A B A  3 ----------
 with abas[2]:
+    _init_clock_state()
     st.subheader("Controle do Jogo")
 
-    # --------------------------
-    # ESTADO DO CRONÔMETRO
-    # --------------------------
-    if "rodando" not in st.session_state:
-        st.session_state.rodando = False
-    if "inicio" not in st.session_state:
-        st.session_state.inicio = None
-    if "tempo_total" not in st.session_state:
-        st.session_state.tempo_total = 0
-    if "tempo_salvo" not in st.session_state:
-        st.session_state.tempo_salvo = []
-    if "periodo" not in st.session_state:
-        st.session_state.periodo = "1º Tempo"
-
-    # --------------------------
-    # FUNÇÕES DE CONTROLE
-    # --------------------------
-    def iniciar():
-        if not st.session_state.rodando:
-            st.session_state.rodando = True
-            st.session_state.inicio = time.time()
-            st.toast("Cronômetro iniciado ▶️")
-
-    def pausar():
-        if st.session_state.rodando:
-            st.session_state.tempo_total += time.time() - st.session_state.inicio
-            st.session_state.rodando = False
-            st.toast("Cronômetro pausado ⏸️")
-
-    def zerar():
-        st.session_state.rodando = False
-        st.session_state.tempo_total = 0
-        st.session_state.inicio = None
-        st.toast("Cronômetro zerado 🔁")
-
-    def tempo_atual():
-        if st.session_state.rodando:
-            return st.session_state.tempo_total + (time.time() - st.session_state.inicio)
-        else:
-            return st.session_state.tempo_total
-
-    # --------------------------
-    # BOTÕES DE CONTROLE
-    # --------------------------
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        if st.button("▶️ Iniciar"):
-            iniciar()
-    with c2:
-        if st.button("⏸️ Pausar"):
-            pausar()
-    with c3:
-        if st.button("🔁 Zerar"):
-            zerar()
-    with c4:
-        st.session_state.periodo = st.selectbox(
-            "Período",
-            ["1º Tempo", "2º Tempo"],
-            index=0 if st.session_state.periodo == "1º Tempo" else 1,
-            key="periodo_select",
+    # Botões primeiro (para o JS receber estado já atualizado)
+    b1, b2, b3, b4 = st.columns([1,1,1,1])
+    with b1:
+        if st.button("▶️ Iniciar", key="clk_start"): iniciar()
+    with b2:
+        if st.button("⏸️ Pausar", key="clk_pause"): pausar()
+    with b3:
+        if st.button("🔁 Zerar", key="clk_reset"): zerar()
+    with b4:
+        st.session_state["periodo"] = st.selectbox(
+            "Período", ["1º Tempo","2º Tempo"],
+            index=0 if st.session_state["periodo"]=="1º Tempo" else 1,
+            key="sel_periodo"
         )
 
-    # --------------------------
-    # CRONÔMETRO VISUAL (JS)
-    # --------------------------
-    tempo_segundos = int(tempo_atual())
-    minutos = tempo_segundos // 60
-    segundos = tempo_segundos % 60
+    # Render cronômetro JS com o estado pós-botões
+    render_cronometro_js()
 
-    components.html(f"""
-        <div style="
-            position:sticky;top:0;text-align:center;background:#000;
-            padding:10px;border-radius:10px;color:#FFD700;
-            font-family:'Courier New', monospace;font-size:48px;
-            text-shadow:0 0 10px #FFD700;
-            ">
-            ⏱ {minutos:02d}:{segundos:02d}
-        </div>
-        <script>
-            setInterval(() => {{
-                const el = document.querySelector('div');
-                if (el) el.style.opacity = 1;
-            }}, 1000);
-        </script>
-    """, height=80)
+    # Salvar marcação (snapshot do tempo atual + período)
+    if st.button("💾 Salvar marcação", key="clk_mark"):
+        t = tempo_logico_atual()
+        st.session_state["marcacoes"].append({"periodo": st.session_state["periodo"], "elapsed": float(t), "ts": time.time()})
+        mm, ss = int(t//60), int(t%60)
+        st.success(f"Salvo: {mm:02d}:{ss:02d} — {st.session_state['periodo']}")
 
-    # --------------------------
-    # SALVAR MARCAÇÃO
-    # --------------------------
-    if st.button("💾 Salvar marcação"):
-        tempo = tempo_atual()
-        st.session_state.tempo_salvo.append({
-            "tempo": tempo,
-            "periodo": st.session_state.periodo
-        })
-        st.success(f"Salvo: {int(tempo // 60):02d}:{int(tempo % 60):02d} — {st.session_state.periodo}")
-
-    # --------------------------
-    # MOSTRAR MARCAÇÕES
-    # --------------------------
-    if st.session_state.tempo_salvo:
-        st.markdown("### Marcações salvas")
-        for i, m in enumerate(st.session_state.tempo_salvo, 1):
-            st.write(f"{i}. {int(m['tempo'] // 60):02d}:{int(m['tempo'] % 60):02d} — {m['periodo']}")
+    # (Opcional) Lista rápida das marcações
+    if st.session_state["marcacoes"]:
+        st.caption("Marcações salvas:")
+        for i, m in enumerate(st.session_state["marcacoes"], 1):
+            mm, ss = int(m["elapsed"]//60), int(m["elapsed"]%60)
+            st.write(f"{i}. {mm:02d}:{ss:02d} — {m['periodo']}")

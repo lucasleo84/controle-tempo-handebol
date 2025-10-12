@@ -241,10 +241,10 @@ with abas[1]:
                 st.session_state["titulares_definidos"][eq] = False
                 st.info("Edição de titulares liberada.")
 
+
 # =====================================================
 # ABA 3 — CONTROLE DO JOGO (equipes lado a lado + cronômetro JS)
 # =====================================================
-import json
 import streamlit.components.v1 as components
 
 # ---------------------- Inicialização Segura ----------------------
@@ -313,4 +313,8 @@ def render_cronometro_js():
         }}
         tick();
         if (window.__cronovisual_timer) clearInterval(window.__cronovisual_timer);
-        window.__cronovisual_timer = setIn_
+        window.__cronovisual_timer = setInterval(tick, 250);
+      }})();
+    </script>
+    """
+    components.html(html, height=70)

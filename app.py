@@ -388,16 +388,189 @@ def painel(eq, cor):
 
 # ---------------------- ABA PRINCIPAL ----------------------
 with abas[2]:
+    # =====================================================
+# ABA 3 — CONTROLE DO JOGO (equipes lado a lado + cronômetro JS)
+# =====================================================
+import json
+import streamlit.components.v1 as components
+
+# ---------------------- Inicialização Segura ----------------------
+if "iniciado" not in st.session_state:
+    st.session_state.iniciado = False
+if "cronometro" not in st.session_state:
+    st.session_state.cronometro = 0.0
+if "ultimo_tick" not in st.session_state:
+    st.session_state.ultimo_tick = 0.0
+if "invertido" not in st.session_state:
+    st.session_state.invertido = False
+
+# ---------------------- Funções Auxiliares ----------------------
+def atualizar_estado(eq, numero, novo_estado):
+    for j in st.session_state["equipes"][eq]:
+        if j["numero"] == numero:
+            j["estado"] = novo_estado
+            return
+
+def jogadores_por_estado(eq, estado):
+    return [j["numero"] for j in st.session_state["equipes"][eq] if j["estado"] == estado and j["elegivel"]]
+
+# ---------------------- Cronômetro JS ----------------------
+def render_cronometro_js():
+    iniciado = "true" if st.session_state["iniciado"] else "false"
+    base_elapsed = float(st.session_state["cronometro"])
+    start_epoch = float(st.session_state["ultimo_tick"]) if st.session_state["iniciado"] else None
+
+    st.markdown("""
+        <style>
+        .cronofixo { position: sticky; top: 0; z-index: 999; text-align:center; padding:4px;
+                     background:#fff; border-bottom:1px solid #e5e7eb; }
+        .digital { font-family: 'Courier New', monospace; font-size: 32px; font-weight: bold;
+                   color: #FFD700; background:#000; padding: 4px 18px; border-radius: 6px;
+                   display:inline-block; letter-spacing: 2px;
+                   box-shadow: 0 0 10px rgba(255,215,0,.5);}
+        </style>
+    """, unsafe_allow_html=True)
+
+    html = f"""
+    <div class="cronofixo">
+      <div id="cronovisual" class="digital">⏱ 00:00</div>
+    </div>
+    <script>
+      (function(){{
+        const el = document.getElementById('cronovisual');
+        const iniciado = {iniciado};
+        const baseElapsed = {json.dumps(base_elapsed)};
+        const startEpoch = {json.dumps(start_epoch)};
+        function fmt(sec) {{
+          sec = Math.max(0, Math.floor(sec));
+          const m = Math.floor(sec/60), s = sec % 60;
+          return (m<10?'0':'')+m+':' + (s<10?'0':'')+s;
+        }}
+        function tick() {{
+          let elapsed = baseElapsed;
+          if (iniciado && startEpoch) {{
+            const now = Date.now()/1000;
+            elapsed = baseElapsed + (now - startEpoch);
+          }}
+          el.textContent = '⏱ ' + fmt(elapsed);
+        }}
+        tick();
+        if (window.__cronovisual_timer) clearInterval(window.__cronovisual_timer);
+        window.__cronovisual_timer = setInterval(tick, 250);
+      }})();
+    </script>
+    """
+    components.html(html, height=64)
+
+# ---------------------- Cronômetro 2 minutos ----------------------
+def render_cronometro_exclusao():
+    html = """
+    <div style="text-align:center;">
+      <div id="exclusao" style="font-family:'Courier New';font-size:20px;color:#FF3333;
+        background:#111;padding:4px 8px;border-radius:6px;display:inline-block;
+        text-shadow:0 0 10px red;">⏱ 02:00</div>
+    </div>
+    <audio id="alarme" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+    <script>
+      let t = 120;
+      const el = document.getElementById('exclusao');
+      const beep = document.getElementById('alarme');
+      const timer = setInterval(() => {
+        t--;
+        const m = String(Math.floor(t/60)).padStart(2,'0');
+        const s = String(t%60).padStart(2,'0');
+        el.textContent = '⏱ ' + m + ':' + s;
+        if (t <= 0) {
+          clearInterval(timer);
+          el.textContent = '✅ Tempo cumprido';
+          beep.play();
+        }
+      }, 1000);
+    </script>
+    """
+    components.html(html, height=100)
+
+# ---------------------- Painel por equipe ----------------------
+def painel(eq, cor):
+    st.markdown(
+        f"<h4 style='text-align:center; color:{cor}; margin-bottom:8px;'>Equipe {eq}</h4>",
+        unsafe_allow_html=True
+    )
+
+    jogando = jogadores_por_estado(eq, "jogando")
+    banco = jogadores_por_estado(eq, "banco")
+    excluidos = jogadores_por_estado(eq, "excluido")
+
+    col1, col2, col3 = st.columns([1,1,1])
+
+    # Substituição
+    with col1:
+        st.markdown("**🔁 Substituição**")
+        sai = st.selectbox("Sai", jogando, key=f"sai_{eq}")
+        entra = st.selectbox("Entra", banco, key=f"entra_{eq}")
+        if st.button("Confirmar", key=f"sub_{eq}"):
+            if sai and entra:
+                atualizar_estado(eq, sai, "banco")
+                atualizar_estado(eq, entra, "jogando")
+                st.success(f"Sai {sai}, Entra {entra}")
+
+    # 2 minutos e Completou lado a lado
+    with col2:
+        st.markdown("**⏱ 2 minutos**")
+        jogador_ex = st.selectbox("Jogador", jogando, key=f"exc_{eq}")
+        if st.button("Aplicar", key=f"btn_exc_{eq}"):
+            if jogador_ex:
+                atualizar_estado(eq, jogador_ex, "excluido")
+                st.warning(f"{jogador_ex} fora por 2 minutos")
+                render_cronometro_exclusao()
+
+        st.markdown("<hr style='margin:6px 0;'>", unsafe_allow_html=True)
+        st.markdown("**✅ Completou / Retorna**")
+        elegiveis_retorno = jogadores_por_estado(eq, "excluido") + jogadores_por_estado(eq, "banco")
+        jogador_comp = st.selectbox("Jogador que retorna", elegiveis_retorno, key=f"comp_{eq}")
+        if st.button("Confirmar Retorno", key=f"btn_comp_{eq}"):
+            if jogador_comp:
+                atualizar_estado(eq, jogador_comp, "jogando")
+                st.success(f"{jogador_comp} voltou ao jogo")
+
+    # Expulsão
+    with col3:
+        st.markdown("**🟥 Expulsão**")
+        jogador_exp = st.selectbox("Jogador", jogando + excluidos + banco, key=f"exp_{eq}")
+        if st.button("Expulsar", key=f"btn_exp_{eq}"):
+            if jogador_exp:
+                atualizar_estado(eq, jogador_exp, "expulso")
+                for j in st.session_state["equipes"][eq]:
+                    if j["numero"] == jogador_exp:
+                        j["elegivel"] = False
+                st.error(f"{jogador_exp} expulso do jogo!")
+
+# ---------------------- Aba principal ----------------------
+with abas[2]:
     st.subheader("Controle do Jogo")
+
+    # Botão inverter lados
+    st.markdown("### ⚙️ Organização das Equipes")
+    if st.button("🔄 Inverter Lados"):
+        st.session_state.invertido = not st.session_state.invertido
+
     render_cronometro_js()
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Recupera as cores definidas na aba de configuração
-    cor_a = st.session_state.get("cor_A", "#1976D2")  # azul padrão
-    cor_b = st.session_state.get("cor_B", "#D32F2F")  # vermelho padrão
+    cor_a = st.session_state.get("cor_A", "#1976D2")
+    cor_b = st.session_state.get("cor_B", "#D32F2F")
 
-    col_a, col_b = st.columns(2)
-    with col_a:
-        painel("A", cor_a)
-    with col_b:
-        painel("B", cor_b)
+    # Equipes lado a lado (com opção de inverter)
+    if not st.session_state.invertido:
+        col_a, col_b = st.columns(2)
+        with col_a:
+            painel("A", cor_a)
+        with col_b:
+            painel("B", cor_b)
+    else:
+        col_b, col_a = st.columns(2)
+        with col_b:
+            painel("B", cor_b)
+        with col_a:
+            painel("A", cor_a)
+    

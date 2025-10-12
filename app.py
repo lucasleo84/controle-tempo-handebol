@@ -324,7 +324,7 @@ with abas[2]:
     st.subheader("Controle do Jogo")
 
     # Botão de inverter lados
-    if st.button("🔄 Inverter Lados"):
+    if st.button("🔄 Inverter Lados", key="invert_lados_main"):
         st.session_state.invertido = not st.session_state.invertido
 
     # Cronômetro fixo com botões

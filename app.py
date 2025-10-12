@@ -283,13 +283,18 @@ with abas[2]:
 
     st.divider()
 
-    # ------------------ COMPLETOU ------------------
+      # ------------------ COMPLETOU ------------------
     st.markdown("### ✅ Completou 2 minutos")
-    jogador_comp = st.selectbox("Jogador que retorna", excluidos, key=f"comp_{eq}")
-    if st.button("Confirmar Retorno", key=f"btn_comp_{eq}"):
-        if jogador_comp:
-            atualizar_estado(eq, jogador_comp, "jogando")
-            st.success(f"Jogador {jogador_comp} voltou ao jogo após 2 minutos.")
+    # Agora mostra jogadores excluídos + banco
+    elegiveis_retorno = jogadores_por_estado(eq, "excluido") + jogadores_por_estado(eq, "banco")
+    if not elegiveis_retorno:
+        st.info("Nenhum jogador disponível para retorno ou substituição.")
+    else:
+        jogador_comp = st.selectbox("Jogador que retorna ao jogo", elegiveis_retorno, key=f"comp_{eq}")
+        if st.button("Confirmar Retorno", key=f"btn_comp_{eq}"):
+            if jogador_comp:
+                atualizar_estado(eq, jogador_comp, "jogando")
+                st.success(f"Jogador {jogador_comp} entrou no jogo (retorno ou substituição após 2 minutos).")
 
 # =====================================================
 # ABA 4 — VISUALIZAÇÃO DE DADOS

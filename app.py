@@ -244,18 +244,134 @@ with abas[1]:
                 st.info("Edição de titulares liberada.")
 
 # =====================================================
-# ABA 3 — CONTROLE DO JOGO (JS + Python)
+# ABA 3 — CONTROLE DO JOGO (cronômetro 100% estável)
 # =====================================================
+import streamlit.components.v1 as components
+import json, time
+
 with abas[2]:
     st.subheader("Controle do Jogo")
 
-    # Linha de controles
-    c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
-    with c1:
-        if st.button("▶️ Iniciar", key="btn_iniciar"):
-            iniciar()
-    with c2:
-        if st.button("⏸️ Pausar", key="btn_pausar"):
-            pausar()
-    with c3:
-        if st.button("🔁 Zerar", key="
+    # Estado inicial
+    if "tempo_salvo" not in st.session_state:
+        st.session_state.tempo_salvo = []
+    if "periodo" not in st.session_state:
+        st.session_state.periodo = "1º Tempo"
+
+    # --- Estilo fixo do cronômetro ---
+    st.markdown("""
+        <style>
+        .cronometro-box {
+            position: sticky;
+            top: 0;
+            background-color: #111;
+            border-radius: 10px;
+            padding: 10px;
+            text-align: center;
+            color: white;
+            font-family: 'Courier New', monospace;
+            z-index: 100;
+        }
+        .cronometro {
+            font-size: 48px;
+            color: #FFD700;
+            text-shadow: 0 0 10px #FFD700;
+            margin: 8px 0;
+        }
+        .btn {
+            background-color: #222;
+            color: white;
+            border: 1px solid #555;
+            padding: 6px 10px;
+            margin: 4px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .btn:hover { background-color: #333; }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # --- HTML + JavaScript do cronômetro ---
+    js_html = f"""
+    <div class="cronometro-box">
+        <div id="cronometro" class="cronometro">00:00</div>
+        <div>
+            <button class="btn" onclick="iniciar()">▶️ Iniciar</button>
+            <button class="btn" onclick="pausar()">⏸️ Pausar</button>
+            <button class="btn" onclick="zerar()">🔁 Zerar</button>
+            <button class="btn" onclick="salvar()">💾 Salvar</button>
+        </div>
+        <div style="margin-top:8px;">
+            <label>Período:</label>
+            <select id="periodo">
+                <option value="1º Tempo" {'selected' if st.session_state.periodo == '1º Tempo' else ''}>1º Tempo</option>
+                <option value="2º Tempo" {'selected' if st.session_state.periodo == '2º Tempo' else ''}>2º Tempo</option>
+            </select>
+        </div>
+    </div>
+
+    <script>
+        let segundos = 0;
+        let rodando = false;
+        let intervalo;
+
+        function formatar(seg) {{
+            const m = String(Math.floor(seg / 60)).padStart(2, '0');
+            const s = String(seg % 60).padStart(2, '0');
+            return `${{m}}:${{s}}`;
+        }}
+
+        function atualizar() {{
+            document.getElementById("cronometro").innerText = formatar(segundos);
+        }}
+
+        function iniciar() {{
+            if (!rodando) {{
+                rodando = true;
+                intervalo = setInterval(() => {{
+                    segundos++;
+                    atualizar();
+                }}, 1000);
+            }}
+        }}
+
+        function pausar() {{
+            rodando = false;
+            clearInterval(intervalo);
+        }}
+
+        function zerar() {{
+            rodando = false;
+            clearInterval(intervalo);
+            segundos = 0;
+            atualizar();
+        }}
+
+        function salvar() {{
+            const periodo = document.getElementById("periodo").value;
+            const data = {{ tempo: segundos, periodo: periodo }};
+            const input = document.createElement("input");
+            input.type = "hidden";
+            input.name = "cronometro_data";
+            input.value = JSON.stringify(data);
+            document.body.appendChild(input);
+            document.forms[0].submit();
+        }}
+
+        atualizar();
+    </script>
+    """
+
+    # Renderiza o cronômetro
+    components.html(js_html, height=320)
+
+    # Captura dados enviados (sem travar o app)
+    cronometro_json = st.experimental_get_query_params().get("cronometro_data")
+    if cronometro_json:
+        try:
+            data = json.loads(cronometro_json[0])
+            st.session_state.tempo_salvo.append(data)
+            st.session_state.periodo = data["periodo"]
+            st.success(f"Tempo salvo: {data['tempo']} segundos ({data['periodo']})")
+        except Exception:
+            pass

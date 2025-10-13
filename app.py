@@ -409,6 +409,96 @@ with abas[2]:
         else:
             st.info("Cadastre a Equipe B na aba de Configuração.")
 
+# -----------------------------------------------------
+# Substituições avulsas (retroativas) — correção de tempos
+# -----------------------------------------------------
+st.divider()
+st.markdown("## 📝 Substituições avulsas (retroativas)")
+
+# Garantias mínimas para stats (se a aba 4 ainda não rodou)
+if "stats" not in st.session_state:
+    st.session_state["stats"] = {"A": {}, "B": {}}
+if "periodo" not in st.session_state:
+    st.session_state["periodo"] = "1º Tempo"
+
+def _ensure_player_stats(eq: str, numero: int):
+    return st.session_state["stats"][eq].setdefault(int(numero), {
+        "jogado_1t": 0.0, "jogado_2t": 0.0, "banco": 0.0, "doismin": 0.0
+    })
+
+with st.container():
+    col_eq, col_time = st.columns([1,1])
+    with col_eq:
+        equipe_sel = st.radio("Equipe", ["A", "B"], horizontal=True, key="retro_eq")
+    with col_time:
+        periodo_sel = st.selectbox("Período da jogada", ["1º Tempo", "2º Tempo"], key="retro_periodo")
+
+    # Lista completa de atletas da equipe (sem filtrar por estado)
+    all_nums = [j["numero"] for j in st.session_state["equipes"].get(equipe_sel, [])]
+    c1, c2, c3 = st.columns([1,1,1])
+    with c1:
+        sai_num = st.selectbox("Sai (elenco completo)", all_nums, key="retro_sai")
+    with c2:
+        entra_opcoes = [n for n in all_nums if n != sai_num]
+        entra_num = st.selectbox("Entra (elenco completo)", entra_opcoes, key="retro_entra")
+    with c3:
+        tempo_str = st.text_input("Tempo do jogo (MM:SS)", value="00:00", key="retro_tempo",
+                                  help="Ex.: 12:34 significa que a substituição deveria ter ocorrido aos 12min34s.")
+
+    aplicar_estado = st.checkbox("Aplicar também ao estado atual (fazer a troca agora)", value=True, key="retro_apply_state")
+
+    def _parse_mmss(txt: str) -> int | None:
+        try:
+            mm, ss = txt.strip().split(":")
+            m = int(mm); s = int(ss)
+            if m < 0 or s < 0 or s >= 60: return None
+            return m*60 + s
+        except Exception:
+            return None
+
+    if st.button("➕ Inserir substituição retroativa", use_container_width=True, key="retro_btn"):
+        # 1) validar campos
+        if not all_nums:
+            st.error("Nenhum jogador cadastrado para a equipe selecionada.")
+        else:
+            t_mark = _parse_mmss(tempo_str)
+            if t_mark is None:
+                st.error("Tempo inválido. Use o formato MM:SS (ex.: 07:45).")
+            elif sai_num == entra_num:
+                st.error("Os jogadores de 'Sai' e 'Entra' precisam ser diferentes.")
+            else:
+                # 2) calcular intervalo entre o tempo informado e o tempo atual
+                now_elapsed = tempo_logico_atual()  # tempo oficial do jogo em segundos (do seu cronômetro)
+                dt = max(0.0, float(now_elapsed) - float(t_mark))
+                if dt <= 0:
+                    st.warning("O tempo informado é igual ou maior que o tempo atual — nada a corrigir.")
+                else:
+                    # 3) corrigir estatísticas no período escolhido
+                    jog_key = "jogado_1t" if periodo_sel == "1º Tempo" else "jogado_2t"
+                    s_out = _ensure_player_stats(equipe_sel, int(sai_num))
+                    s_in = _ensure_player_stats(equipe_sel, int(entra_num))
+
+                    # Sai: remover dt do jogado_X (sem ficar negativo) e somar em banco
+                    s_out[jog_key] = max(0.0, s_out[jog_key] - dt)
+                    s_out["banco"] += dt
+
+                    # Entra: remover dt do banco (sem ficar negativo) e somar em jogado_X
+                    s_in["banco"] = max(0.0, s_in["banco"] - dt)
+                    s_in[jog_key] += dt
+
+                    # 4) (opcional) aplicar estado atual agora
+                    if aplicar_estado:
+                        atualizar_estado(equipe_sel, int(sai_num), "banco")
+                        atualizar_estado(equipe_sel, int(entra_num), "jogando")
+
+                    # 5) feedback
+                    mm_dt, ss_dt = int(dt//60), int(dt%60)
+                    st.success(
+                        f"Retroativo aplicado ({periodo_sel}): "
+                        f"Sai {sai_num} (−{mm_dt:02d}:{ss_dt:02d} jogado, + banco) | "
+                        f"Entra {entra_num} (+ jogado, − banco) a partir de {tempo_str} até agora."
+                    )
+
 # =====================================================
 # ABA 4 — VISUALIZAÇÃO DE DADOS (com autoatualização opcional)
 # =====================================================

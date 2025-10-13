@@ -386,15 +386,6 @@ with abas[2]:
     _init_clock_state()
     st.subheader("Controle do Jogo")
 
-    # Mensagem "flash" (chips) vinda do último rerun
-    if "flash_text" in st.session_state or "flash_html" in st.session_state:
-        if "flash_text" in st.session_state:
-            st.success(st.session_state["flash_text"], icon="🔁")
-        if "flash_html" in st.session_state:
-            st.markdown(st.session_state["flash_html"], unsafe_allow_html=True)
-        st.session_state.pop("flash_text", None)
-        st.session_state.pop("flash_html", None)
-
     # Linha do relógio e período
     cc1, cc2, cc3, cc4, cc5 = st.columns([1, 1, 1, 1, 1])
     with cc1:
@@ -577,6 +568,14 @@ with abas[2]:
     if st.button("➕ Inserir substituição retroativa", use_container_width=True, key="retro_btn"):
         aplicar_retro()
 
+    # Mensagem "flash" (chips) vinda do último rerun
+    if "flash_text" in st.session_state or "flash_html" in st.session_state:
+        if "flash_text" in st.session_state:
+            st.success(st.session_state["flash_text"], icon="🔁")
+        if "flash_html" in st.session_state:
+            st.markdown(st.session_state["flash_html"], unsafe_allow_html=True)
+        st.session_state.pop("flash_text", None)
+        st.session_state.pop("flash_html", None)
 
 # =====================================================
 # ABA 4 — VISUALIZAÇÃO DE DADOS (auto opcional)

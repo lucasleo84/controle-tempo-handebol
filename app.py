@@ -410,87 +410,84 @@ with abas[2]:
             st.info("Cadastre a Equipe B na aba de Configuração.")
 
 # =====================================================
-# ABA 4 — VISUALIZAÇÃO DE DADOS (com helpers locais)
+# ABA 4 — VISUALIZAÇÃO DE DADOS (estável)
 # =====================================================
 with abas[3]:
     import time
     import pandas as pd
 
-    # ---------- Helpers locais (definidos UMA vez por sessão) ----------
-    if "_stats_helpers_ready" not in st.session_state:
-        def _init_stats():
-            if "stats" not in st.session_state:
-                # stats[eq][numero] = {"jogado_1t":s, "jogado_2t":s, "banco":s, "doismin":s}
-                st.session_state["stats"] = {"A": {}, "B": {}}
-            if "last_accum" not in st.session_state:
-                st.session_state["last_accum"] = time.time()
-            if "periodo" not in st.session_state:
-                st.session_state["periodo"] = "1º Tempo"
-            if "equipes" not in st.session_state:
-                st.session_state["equipes"] = {"A": [], "B": []}
-            if "cores" not in st.session_state:
-                st.session_state["cores"] = {"A": "#00AEEF", "B": "#EC008C"}
+    # --------- Garantias mínimas de estado ---------
+    if "equipes" not in st.session_state:
+        st.session_state["equipes"] = {"A": [], "B": []}
+    if "cores" not in st.session_state:
+        st.session_state["cores"] = {"A": "#00AEEF", "B": "#EC008C"}
+    if "periodo" not in st.session_state:
+        st.session_state["periodo"] = "1º Tempo"
+    if "stats" not in st.session_state:
+        # stats[eq][numero] = {"jogado_1t":s, "jogado_2t":s, "banco":s, "doismin":s}
+        st.session_state["stats"] = {"A": {}, "B": {}}
+    if "last_accum" not in st.session_state:
+        st.session_state["last_accum"] = time.time()
 
-        def _ensure_player_stats(eq: str, numero: int):
-            d = st.session_state["stats"][eq].setdefault(int(numero), {
-                "jogado_1t": 0.0, "jogado_2t": 0.0, "banco": 0.0, "doismin": 0.0
-            })
-            return d
+    # --------- Helpers (definidos SEMPRE) ---------
+    def _ensure_player_stats(eq: str, numero: int):
+        return st.session_state["stats"][eq].setdefault(int(numero), {
+            "jogado_1t": 0.0, "jogado_2t": 0.0, "banco": 0.0, "doismin": 0.0
+        })
 
-        def _accumulate_time_tick():
-            """Soma o delta de tempo desde a última atualização aos jogadores, conforme estado e período."""
-            _init_stats()
-            now = time.time()
-            dt = max(0.0, now - st.session_state["last_accum"])
-            st.session_state["last_accum"] = now
+    def _accumulate_time_tick():
+        """
+        Soma o delta de tempo desde a última atualização para cada atleta,
+        conforme o estado atual e o período (1º/2º).
+        """
+        now = time.time()
+        dt = max(0.0, now - st.session_state["last_accum"])
+        st.session_state["last_accum"] = now
 
-            periodo = st.session_state.get("periodo", "1º Tempo")
-            jogado_key = "jogado_1t" if periodo == "1º Tempo" else "jogado_2t"
+        jogado_key = "jogado_1t" if st.session_state["periodo"] == "1º Tempo" else "jogado_2t"
 
-            for eq in ["A", "B"]:
-                for j in st.session_state["equipes"].get(eq, []):
-                    num = int(j["numero"])
-                    stats = _ensure_player_stats(eq, num)
-                    estado = j.get("estado", "banco")
-                    if estado == "jogando":
-                        stats[jogado_key] += dt
-                    elif estado == "banco":
-                        stats["banco"] += dt
-                    elif estado == "excluido":
-                        stats["doismin"] += dt
-                    # "expulso" não acumula nessas categorias
+        for eq in ["A", "B"]:
+            for j in st.session_state["equipes"].get(eq, []):
+                num = int(j["numero"])
+                s = _ensure_player_stats(eq, num)
+                estado = j.get("estado", "banco")
+                if estado == "jogando":
+                    s[jogado_key] += dt
+                elif estado == "banco":
+                    s["banco"] += dt
+                elif estado == "excluido":
+                    s["doismin"] += dt
+                # "expulso" não acumula nessas categorias
 
-        def _stats_to_dataframe():
-            rows = []
-            for eq in ["A", "B"]:
-                cor = st.session_state["cores"].get(eq, "#333")
-                for j in st.session_state["equipes"].get(eq, []):
-                    num = int(j["numero"])
-                    est = j.get("estado", "banco")
-                    exc = j.get("exclusoes", 0)
-                    s = st.session_state["stats"][eq].get(num, {"jogado_1t":0, "jogado_2t":0, "banco":0, "doismin":0})
-                    j1 = s["jogado_1t"] / 60.0
-                    j2 = s["jogado_2t"] / 60.0
-                    jog_total = j1 + j2
-                    banco_min = s["banco"] / 60.0
-                    dois_min = s["doismin"] / 60.0
-                    rows.append({
-                        "Equipe": eq,
-                        "Número": num,
-                        "Estado": est,
-                        "Exclusões": exc,
-                        "Jogado 1ºT (min)": round(j1, 1),
-                        "Jogado 2ºT (min)": round(j2, 1),
-                        "Jogado Total (min)": round(jog_total, 1),
-                        "Banco (min)": round(banco_min, 1),
-                        "2 min (min)": round(dois_min, 1),
-                        "CorEquipe": cor,
-                    })
-            return pd.DataFrame(rows).sort_values(["Equipe", "Número"]) if rows else pd.DataFrame()
+    def _stats_to_dataframe():
+        rows = []
+        for eq in ["A", "B"]:
+            cor = st.session_state["cores"].get(eq, "#333")
+            for j in st.session_state["equipes"].get(eq, []):
+                num = int(j["numero"])
+                est = j.get("estado", "banco")
+                exc = j.get("exclusoes", 0)
+                s = st.session_state["stats"][eq].get(num, {"jogado_1t":0, "jogado_2t":0, "banco":0, "doismin":0})
+                j1 = s["jogado_1t"] / 60.0
+                j2 = s["jogado_2t"] / 60.0
+                jog_total = j1 + j2
+                banco_min = s["banco"] / 60.0
+                dois_min = s["doismin"] / 60.0
+                rows.append({
+                    "Equipe": eq,
+                    "Número": num,
+                    "Estado": est,
+                    "Exclusões": exc,
+                    "Jogado 1ºT (min)": round(j1, 1),
+                    "Jogado 2ºT (min)": round(j2, 1),
+                    "Jogado Total (min)": round(jog_total, 1),
+                    "Banco (min)": round(banco_min, 1),
+                    "2 min (min)": round(dois_min, 1),
+                    "CorEquipe": cor,
+                })
+        return pd.DataFrame(rows).sort_values(["Equipe", "Número"]) if rows else pd.DataFrame()
 
-        st.session_state["_stats_helpers_ready"] = True
-
-    # ---------- Execução da aba ----------
+    # --------- Execução da aba ---------
     st.subheader("Visualização de Dados")
 
     # 1) Atualiza as estatísticas com o delta desde a última ação

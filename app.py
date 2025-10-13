@@ -432,7 +432,7 @@ with abas[2]:
     col_esq, col_dir = st.columns(2)
     with col_esq:
         if st.session_state["equipes"][lados[0]]:
-            st.markdown(f"#### {get_team_name(lados[0])]}")
+            st.markdown(f"#### {get_team_name(lados[0])}")
             painel_equipe(lados[0])
         else:
             st.info(f"Cadastre a {get_team_name(lados[0])} na aba de Configuração.")

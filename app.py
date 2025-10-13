@@ -172,6 +172,9 @@ with abas[1]:
 # =====================================================
 # ABA 3 — CONTROLE DO JOGO (entradas, saídas e penalidades)
 # =====================================================
+import time, json
+import streamlit.components.v1 as components
+from string import Template  # ok repetir o import; não dá erro
 
 # ---------- Estado mínimo do relógio e dados ----------
 def _init_clock_state():
@@ -276,7 +279,7 @@ def zerar():
     st.session_state["ultimo_tick"] = time.time()
     st.toast("🔁 Zerado", icon="🔁")
 
-# ---------- Utilitários de tempo / stats (compartilhados) ----------
+# ---------- Utilitários de tempo / stats ----------
 def _ensure_player_stats(eq: str, numero: int):
     if "stats" not in st.session_state:
         st.session_state["stats"] = {"A": {}, "B": {}}
@@ -297,6 +300,8 @@ def _parse_mmss(txt: str) -> int | None:
         return m*60 + s
     except Exception:
         return None
+
+# (usa helpers já existentes do app: get_team_name, atualizar_estado, elenco, jogadores_por_estado)
 
 # ---------- Painel da equipe ----------
 def painel_equipe(eq: str):
@@ -380,6 +385,15 @@ def painel_equipe(eq: str):
 with abas[2]:
     _init_clock_state()
     st.subheader("Controle do Jogo")
+
+    # Mensagem "flash" (chips) vinda do último rerun
+    if "flash_text" in st.session_state or "flash_html" in st.session_state:
+        if "flash_text" in st.session_state:
+            st.success(st.session_state["flash_text"], icon="🔁")
+        if "flash_html" in st.session_state:
+            st.markdown(st.session_state["flash_html"], unsafe_allow_html=True)
+        st.session_state.pop("flash_text", None)
+        st.session_state.pop("flash_html", None)
 
     # Linha do relógio e período
     cc1, cc2, cc3, cc4, cc5 = st.columns([1, 1, 1, 1, 1])
@@ -476,6 +490,10 @@ with abas[2]:
     st.divider()
     st.markdown("## 📝 Substituições avulsas (retroativas)")
 
+    # Garantia de stats
+    if "stats" not in st.session_state:
+        st.session_state["stats"] = {"A": {}, "B": {}}
+
     col_eq, col_time = st.columns([1, 1])
     with col_eq:
         equipe_sel = st.radio(
@@ -532,46 +550,28 @@ with abas[2]:
         atualizar_estado(equipe_sel, int(sai_num), "banco")
         atualizar_estado(equipe_sel, int(entra_num), "jogando")
 
+        # Mensagem detalhada (fica para logs locais da execução atual)
         mm_dt, ss_dt = int(dt // 60), int(dt % 60)
-        st.success(
+        st.info(
             f"Retroativo aplicado ({periodo_sel}) em {get_team_name(equipe_sel)}: "
             f"Sai {sai_num} (−{mm_dt:02d}:{ss_dt:02d} jogado, + banco) | "
             f"Entra {entra_num} (+ jogado, − banco) a partir de {tempo_str} até agora."
         )
 
-        # 💬 Feedback visual como nas outras ações
-        st.success(f"Substituição retroativa realizada: Sai {sai_num} / Entra {entra_num}", icon="🔁")
-        st.markdown(
+        # 💬 preparar mensagem "flash" (após rerun) com chips
+        st.session_state["flash_text"] = f"Substituição retroativa realizada: Sai {sai_num} / Entra {entra_num}"
+        st.session_state["flash_html"] = (
             f"<span class='chip chip-sai'>Sai {sai_num}</span>"
-            f"<span class='chip chip-ent'>Entra {entra_num}</span>",
-            unsafe_allow_html=True
+            f"<span class='chip chip-ent'>Entra {entra_num}</span>"
         )
-        # (opcional) toast discreto no canto
-        st.toast("Substituição retroativa registrada", icon="✅")
-     
-        # --- NOVO: limpa seleções de UI dessa equipe para não “grudar” valores antigos
+
+        # limpar seleções e forçar re-render
         for k in (
-            f"sai_{equipe_sel}",
-            f"entra_{equipe_sel}",
-            f"doismin_sel_{equipe_sel}",
-            f"comp_sel_{equipe_sel}",
-            f"exp_sel_{equipe_sel}",
+            f"sai_{equipe_sel}", f"entra_{equipe_sel}", f"doismin_sel_{equipe_sel}",
+            f"comp_sel_{equipe_sel}", f"exp_sel_{equipe_sel}",
         ):
+            st.session_state.pop(k, None)
 
-            st.session_state.pop(k, None)  # em vez de if...del
-    
-    # Limpa seleções de UI dessa equipe e força re-render
-    for k in (
-        f"sai_{equipe_sel}", f"entra_{equipe_sel}", f"doismin_sel_{equipe_sel}",
-        f"comp_sel_{equipe_sel}", f"exp_sel_{equipe_sel}",
-    ):
-        st.session_state.pop(k, None)
-
-    st.rerun()
-
-
-        
-        # --- NOVO: força re-render IMEDIATO (listas “jogando”/“banco” sobem atualizadas)
         st.rerun()
 
     if st.button("➕ Inserir substituição retroativa", use_container_width=True, key="retro_btn"):

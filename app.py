@@ -177,6 +177,10 @@ def _init_clock_state():
     if "equipes" not in st.session_state: st.session_state["equipes"] = {"A": [], "B": []}
     if "cores" not in st.session_state: st.session_state["cores"] = {"A": "#00AEEF", "B": "#EC008C"}
     if "invert_lados" not in st.session_state: st.session_state["invert_lados"] = False
+    if "penalties" not in st.session_state:
+        # penalties[eq] = lista [{"numero": int, "start": float, "end": float, "consumido": bool}]
+        st.session_state["penalties"] = {"A": [], "B": []}
+
 
 # -------------------------
 # Helpers de nomes/cores/equipe
@@ -196,6 +200,25 @@ def jogadores_por_estado(eq, estado):
     return [int(j["numero"]) for j in st.session_state["equipes"][eq] if j.get("elegivel", True) and j.get("estado") == estado]
 
 def elenco(eq):
+    def _equipe_penalidades(eq: str):
+    return st.session_state["penalties"].get(eq, [])
+
+def _registrar_exclusao(eq: str, numero: int, start_elapsed: float):
+    st.session_state["penalties"][eq].append({
+        "numero": int(numero),
+        "start": float(start_elapsed),
+        "end": float(start_elapsed) + 120.0,   # 2 minutos fixos
+        "consumido": False
+    })
+
+def _penalidades_ativas(eq: str, agora_elapsed: float):
+    # Ativas = agora < end e não consumidas
+    return [p for p in _equipe_penalidades(eq) if (agora_elapsed < p["end"]) and not p["consumido"]]
+
+def _penalidades_concluidas_nao_consumidas(eq: str, agora_elapsed: float):
+    # Concluídas = agora >= end e não consumidas
+    return [p for p in _equipe_penalidades(eq) if (agora_elapsed >= p["end"]) and not p["consumido"]]
+
     # Todos elegíveis (para 2' e expulsão)
     return [int(j["numero"]) for j in st.session_state["equipes"][eq] if j.get("elegivel", True)]
 
@@ -379,18 +402,35 @@ def painel_equipe(eq: str):
                 atualizar_estado(eq, jog_2m, "excluido")
                 st.warning(f"Jogador {jog_2m} excluído por 2 minutos.")
                 render_cronometro_exclusao()
+             if st.button("Aplicar 2'", key=f"btn_2min_{eq}", disabled=(len(full)==0)):
+                # Estado passa a 'excluido' e registra penalidade com início/fim exatos
+                atualizar_estado(eq, jog_2m, "excluido")
+                start = tempo_logico_atual()
+                _registrar_exclusao(eq, jog_2m, start_elapsed=start)
+                st.warning(f"Jogador {jog_2m} excluído por 2 minutos.")
 
-        with cols_pen[1]:
+
+                with cols_pen[1]:
             st.markdown("<div class='sec-title'>✅ Completou</div>", unsafe_allow_html=True)
-            # Completou: apenas banco + excluído
+            agora = tempo_logico_atual()
+            concluidas = _penalidades_concluidas_nao_consumidas(eq, agora)
+
+            # Retorno pode ser do próprio excluído (se já completou) ou alguém do banco
             elegiveis_retorno = jogadores_por_estado(eq, "banco") + jogadores_por_estado(eq, "excluido")
             comp = st.selectbox("Jogador que entra", elegiveis_retorno, key=f"comp_sel_{eq}")
+
             if st.button("Confirmar retorno", key=f"btn_comp_{eq}", disabled=(len(elegiveis_retorno)==0)):
-                if comp in elegiveis_retorno:
-                    atualizar_estado(eq, comp, "jogando")
-                    st.success(f"Jogador {comp} entrou no jogo.")
+                if not concluidas:
+                    st.error("Ainda não há exclusões concluídas (2' completos) nesta equipe. Aguarde o término.")
                 else:
-                    st.error("Seleção inválida.")
+                    # Consome a penalidade concluída mais antiga não consumida
+                    concluidas.sort(key=lambda p: p["end"])
+                    p = concluidas[0]
+                    p["consumido"] = True
+
+                    # Entra em quadra o jogador escolhido
+                    atualizar_estado(eq, comp, "jogando")
+                    st.success(f"Jogador {comp} entrou após 2'.")
 
         st.markdown("---")
 
@@ -440,6 +480,7 @@ with abas[2]:
     render_cronometro_js()
 
     # Painéis lado a lado — ordem respeita "Inverter lados"
+    
     lados = ("A", "B") if not st.session_state["invert_lados"] else ("B", "A")
     col_esq, col_dir = st.columns(2)
     with col_esq:
@@ -454,6 +495,51 @@ with abas[2]:
             painel_equipe(lados[1])
         else:
             st.info(f"Cadastre a {get_team_name(lados[1])} na aba de Configuração.")
+
+        # -------------------- Penalidades ativas (persistentes) --------------------
+    st.markdown("### Penalidades ativas")
+    agora = tempo_logico_atual()
+
+  # -------------------- Penalidades ativas (persistentes) --------------------
+st.markdown("### Penalidades ativas")
+agora = tempo_logico_atual()
+
+from string import Template
+
+html_tpl = Template("""
+<div style="margin:6px 0;">
+  <div style="display:flex;align-items:center;gap:8px;">
+    <div style="font-size:13px;">#$numero — resta:</div>
+    <div id="$elem_id" style="font-family:'Courier New';font-size:18px;color:#FF3333;background:#111;padding:3px 10px;border-radius:6px;display:inline-block;text-shadow:0 0 6px red;">$mm:$ss</div>
+  </div>
+</div>
+<script>
+  (function(){
+    let r = $restante;
+    const el = document.getElementById("$elem_id");
+    const beep = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+    function tick(){
+      r = Math.max(0, r-1);
+      const m = String(Math.floor(r/60)).padStart(2,'0');
+      const s = String(r%60).padStart(2,'0');
+      if (el) el.textContent = m + ":" + s;
+      if (r <= 0) { try { beep.play(); } catch(e) {} clearInterval(window["timer_$elem_id"]); }
+    }
+    if (window["timer_$elem_id"]) clearInterval(window["timer_$elem_id"]);
+    window["timer_$elem_id"] = setInterval(tick, 1000);
+  })();
+</script>
+""")
+
+html = html_tpl.substitute(
+    numero=int(p["numero"]),
+    elem_id=elem_id,
+    mm=f"{minutos:02d}",
+    ss=f"{segundos:02d}",
+    restante=int(restante),
+)
+components.html(html, height=48)
+
 
     # -----------------------------------------------------
     # Substituições avulsas (retroativas) — sempre aplica ao estado atual
@@ -570,6 +656,17 @@ with abas[3]:
                     s["doismin"] += dt
                 # "expulso" não acumula nessas categorias
 
+    def _doismin_por_jogador_agora(eq: str, numero: int, agora_elapsed: float) -> float:
+        """Soma, em minutos, os 2' cumpridos pelo jogador até 'agora' usando o log de penalidades."""
+        total_sec = 0.0
+        for p in st.session_state.get("penalties", {}).get(eq, []):
+            if int(p["numero"]) != int(numero):
+                continue
+            a, b = float(p["start"]), float(p["end"])
+            cumprido = max(0.0, min(agora_elapsed, b) - a)  # interseção [a,b] ∩ [0,agora]
+            total_sec += cumprido
+        return total_sec / 60.0
+
     def _stats_to_dataframe():
         rows = []
         for eq in ["A", "B"]:
@@ -583,7 +680,9 @@ with abas[3]:
                 j2 = s["jogado_2t"] / 60.0
                 jog_total = j1 + j2
                 banco_min = s["banco"] / 60.0
-                dois_min = s["doismin"] / 60.0
+                agora_elapsed = tempo_logico_atual()  # usa a mesma função da Aba 3
+                dois_min = round(_doismin_por_jogador_agora(eq, num, agora_elapsed), 1)
+
                 rows.append({
                     "Equipe": eq,
                     "Número": num,

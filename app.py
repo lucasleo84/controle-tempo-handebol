@@ -538,6 +538,20 @@ with abas[2]:
             f"Sai {sai_num} (−{mm_dt:02d}:{ss_dt:02d} jogado, + banco) | "
             f"Entra {entra_num} (+ jogado, − banco) a partir de {tempo_str} até agora."
         )
+    
+        # --- NOVO: limpa seleções de UI dessa equipe para não “grudar” valores antigos
+        for k in (
+            f"sai_{equipe_sel}",
+            f"entra_{equipe_sel}",
+            f"doismin_sel_{equipe_sel}",
+            f"comp_sel_{equipe_sel}",
+            f"exp_sel_{equipe_sel}",
+        ):
+            if k in st.session_state:
+                del st.session_state[k]
+
+        # --- NOVO: força re-render IMEDIATO (listas “jogando”/“banco” sobem atualizadas)
+        st.rerun()
 
     if st.button("➕ Inserir substituição retroativa", use_container_width=True, key="retro_btn"):
         aplicar_retro()

@@ -540,70 +540,92 @@ html = html_tpl.substitute(
 )
 components.html(html, height=48)
 
+# -----------------------------------------------------
+# Substituições avulsas (retroativas) — sempre aplica ao estado atual
+# -----------------------------------------------------
+st.divider()
+st.markdown("## 📝 Substituições avulsas (retroativas)")
 
-    # -----------------------------------------------------
-    # Substituições avulsas (retroativas) — sempre aplica ao estado atual
-    # -----------------------------------------------------
-    st.divider()
-        st.markdown("## 📝 Substituições avulsas (retroativas)")
-    
-        if "stats" not in st.session_state:
-            st.session_state["stats"] = {"A": {}, "B": {}}
-    
-        col_eq, col_time = st.columns([1,1])
-        with col_eq:
-            equipe_sel = st.radio("Equipe", ["A", "B"], horizontal=True, key="retro_eq",
-                                  format_func=lambda x: get_team_name(x))
-        with col_time:
-            periodo_sel = st.selectbox("Período da jogada", ["1º Tempo", "2º Tempo"], key="retro_periodo")
-    
-        all_nums = elenco(equipe_sel)
-        c1, c2, c3 = st.columns([1,1,1])
-        with c1:
-            sai_num = st.selectbox("Sai", all_nums, key="retro_sai")
-        with c2:
-            entra_opcoes = [n for n in all_nums if n != sai_num]
-            entra_num = st.selectbox("Entra", entra_opcoes, key="retro_entra")
-        with c3:
-            tempo_str = st.text_input("Tempo do jogo (MM:SS)", value="00:00", key="retro_tempo",
-                                      help="Ex.: 12:34 = ocorreu aos 12min34s.")
-    
-        def aplicar_retro():
-            t_mark = _parse_mmss(tempo_str)
-            if t_mark is None:
-                st.error("Tempo inválido. Use o formato MM:SS (ex.: 07:45).")
-                return
-            if sai_num == entra_num:
-                st.error("Os jogadores de 'Sai' e 'Entra' precisam ser diferentes.")
-                return
-    
-            now_elapsed = tempo_logico_atual()
-            dt = max(0.0, float(now_elapsed) - float(t_mark))
-            if dt <= 0:
-                st.warning("O tempo informado é igual ou maior que o tempo atual — nada a corrigir.")
-                return
-    
-            jog_key = "jogado_1t" if periodo_sel == "1º Tempo" else "jogado_2t"
-            s_out = _ensure_player_stats(equipe_sel, int(sai_num))
-            s_in = _ensure_player_stats(equipe_sel, int(entra_num))
-    
-            # Corrige acumulados retroativamente
-            s_out[jog_key] = max(0.0, s_out[jog_key] - dt);  s_out["banco"] += dt
-            s_in["banco"] = max(0.0, s_in["banco"] - dt);    s_in[jog_key] += dt
-    
-            # SEMPRE aplica ao estado atual (comportamento padrão solicitado)
-            atualizar_estado(equipe_sel, int(sai_num), "banco")
-            atualizar_estado(equipe_sel, int(entra_num), "jogando")
-    
-            mm_dt, ss_dt = int(dt//60), int(dt%60)
-            st.success(
-                f"Retroativo aplicado ({periodo_sel}) em {get_team_name(equipe_sel)}: "
-                f"Sai {sai_num} (−{mm_dt:02d}:{ss_dt:02d} jogado, + banco) | "
-                f"Entra {entra_num} (+ jogado, − banco) a partir de {tempo_str} até agora."
-            )
-    
-        if st.button("➕ Inserir substituição retroativa", use_container_width=True, key="retro_btn"):
-            aplicar_retro()
+# Garantia de stats (caso a aba 4 ainda não tenha rodado)
+if "stats" not in st.session_state:
+    st.session_state["stats"] = {"A": {}, "B": {}}
+
+col_eq, col_time = st.columns([1, 1])
+
+with col_eq:
+    equipe_sel = st.radio(
+        "Equipe",
+        ["A", "B"],
+        horizontal=True,
+        key="retro_eq",
+        format_func=lambda x: get_team_name(x),
+    )
+
+with col_time:
+    periodo_sel = st.selectbox(
+        "Período da jogada",
+        ["1º Tempo", "2º Tempo"],
+        key="retro_periodo",
+    )
+
+all_nums = elenco(equipe_sel)
+c1, c2, c3 = st.columns([1, 1, 1])
+
+with c1:
+    sai_num = st.selectbox("Sai", all_nums, key="retro_sai")
+
+with c2:
+    entra_opcoes = [n for n in all_nums if n != sai_num]
+    entra_num = st.selectbox("Entra", entra_opcoes, key="retro_entra")
+
+with c3:
+    tempo_str = st.text_input(
+        "Tempo do jogo (MM:SS)",
+        value="00:00",
+        key="retro_tempo",
+        help="Ex.: 12:34 = ocorreu aos 12min34s.",
+    )
+
+def aplicar_retro():
+    # parse MM:SS
+    t_mark = _parse_mmss(tempo_str)
+    if t_mark is None:
+        st.error("Tempo inválido. Use o formato MM:SS (ex.: 07:45).")
+        return
+    if sai_num == entra_num:
+        st.error("Os jogadores de 'Sai' e 'Entra' precisam ser diferentes.")
+        return
+
+    now_elapsed = tempo_logico_atual()
+    dt = max(0.0, float(now_elapsed) - float(t_mark))
+    if dt <= 0:
+        st.warning("O tempo informado é igual ou maior que o tempo atual — nada a corrigir.")
+        return
+
+    jog_key = "jogado_1t" if periodo_sel == "1º Tempo" else "jogado_2t"
+    s_out = _ensure_player_stats(equipe_sel, int(sai_num))
+    s_in  = _ensure_player_stats(equipe_sel, int(entra_num))
+
+    # Corrige acumulados retroativamente
+    s_out[jog_key]  = max(0.0, s_out[jog_key] - dt)
+    s_out["banco"] += dt
+    s_in["banco"]   = max(0.0, s_in["banco"] - dt)
+    s_in[jog_key]  += dt
+
+    # SEMPRE aplica ao estado atual (comportamento padrão solicitado)
+    atualizar_estado(equipe_sel, int(sai_num), "banco")
+    atualizar_estado(equipe_sel, int(entra_num), "jogando")
+
+    mm_dt, ss_dt = int(dt // 60), int(dt % 60)
+    st.success(
+        f"Retroativo aplicado ({periodo_sel}) em {get_team_name(equipe_sel)}: "
+        f"Sai {sai_num} (−{mm_dt:02d}:{ss_dt:02d} jogado, + banco) | "
+        f"Entra {entra_num} (+ jogado, − banco) a partir de {tempo_str} até agora."
+    )
+
+if st.button("➕ Inserir substituição retroativa", use_container_width=True, key="retro_btn"):
+    aplicar_retro()
+
 
 # =====================================================
 # ABA 4 — VISUALIZAÇÃO DE DADOS (com autoatualização opcional)

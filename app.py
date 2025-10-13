@@ -21,6 +21,24 @@ abas = st.tabs([
     "Visualização de Dados"
 ])
 
+# --- imports e config ---
+import time, json
+import streamlit as st
+import streamlit.components.v1 as components
+# st.set_page_config(page_title="Controle de Tempo", layout="wide")
+
+# --- nomes das equipes: helper + valores padrão ---
+def get_team_name(eq: str) -> str:
+    """Retorna o nome configurado da equipe (A/B); se não houver, usa fallback."""
+    return st.session_state.get(f"nome_{eq}") or f"Equipe {eq}"
+
+# (opcional) garanta defaults no primeiro load
+if "nome_A" not in st.session_state:
+    st.session_state["nome_A"] = "Equipe A"
+if "nome_B" not in st.session_state:
+    st.session_state["nome_B"] = "Equipe B"
+
+
 # =====================================================
 # ABA 1 — CONFIGURAÇÃO DA EQUIPE
 # =====================================================

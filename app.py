@@ -410,8 +410,7 @@ def painel_equipe(eq: str):
                 _registrar_exclusao(eq, jog_2m, start_elapsed=start)
                 st.warning(f"Jogador {jog_2m} excluído por 2 minutos.")
 
-
-                with cols_pen[1]:
+        with cols_pen[1]:
             st.markdown("<div class='sec-title'>✅ Completou</div>", unsafe_allow_html=True)
             agora = tempo_logico_atual()
             concluidas = _penalidades_concluidas_nao_consumidas(eq, agora)

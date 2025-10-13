@@ -408,3 +408,51 @@ with abas[2]:
             painel_equipe("B")
         else:
             st.info("Cadastre a Equipe B na aba de Configuração.")
+
+# =====================================================
+# ABA 4 — VISUALIZAÇÃO DE DADOS
+# =====================================================
+with abas[3]:
+    st.subheader("Visualização de Dados")
+
+    # 1) Atualiza as estatísticas com o delta desde a última ação
+    _accumulate_time_tick()
+
+    # 2) Tabelas por equipe e combinado
+    df = _stats_to_dataframe()
+    if df.empty:
+        st.info("Sem dados ainda. Cadastre equipes, defina titulares e inicie o controle do jogo.")
+    else:
+        # cabeçalhos coloridos por equipe
+        for eq in ["A", "B"]:
+            sub = df[df["Equipe"] == eq].copy()
+            if sub.empty:
+                continue
+            cor = sub["CorEquipe"].iloc[0]
+            st.markdown(
+                f"<div style='background:{cor};color:#fff;padding:6px 10px;border-radius:8px;font-weight:700;margin-top:8px;'>Equipe {eq}</div>",
+                unsafe_allow_html=True
+            )
+            sub = sub.drop(columns=["CorEquipe"])  # coluna só para o header
+            st.dataframe(sub, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("#### Relatório combinado")
+        st.dataframe(df.drop(columns=["CorEquipe"]), use_container_width=True)
+
+        # 3) Download em CSV
+        csv = df.drop(columns=["CorEquipe"]).to_csv(index=False).encode("utf-8")
+        st.download_button("📥 Baixar CSV (todas as equipes)", data=csv, file_name="relatorio_tempos.csv", mime="text/csv")
+
+    # 4) Ações auxiliares
+    colx, coly = st.columns([1,1])
+    with colx:
+        if st.button("♻️ Zerar estatísticas (Apenas tempos)", help="Zera contadores de minutos; não altera estados dos jogadores."):
+            # reseta os acumuladores, mas mantém equipes/estados
+            if "stats" in st.session_state:
+                st.session_state["stats"] = {"A": {}, "B": {}}
+            st.session_state["last_accum"] = time.time()
+            st.success("Estatísticas zeradas.")
+    with coly:
+        st.caption(f"Período atual: **{st.session_state.get('periodo','1º Tempo')}**")
+

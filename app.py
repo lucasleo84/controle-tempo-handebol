@@ -410,7 +410,7 @@ with abas[2]:
             st.info("Cadastre a Equipe B na aba de Configuração.")
 
 # =====================================================
-# ABA 4 — VISUALIZAÇÃO DE DADOS (estável)
+# ABA 4 — VISUALIZAÇÃO DE DADOS (com autoatualização opcional)
 # =====================================================
 with abas[3]:
     import time
@@ -424,22 +424,23 @@ with abas[3]:
     if "periodo" not in st.session_state:
         st.session_state["periodo"] = "1º Tempo"
     if "stats" not in st.session_state:
-        # stats[eq][numero] = {"jogado_1t":s, "jogado_2t":s, "banco":s, "doismin":s}
         st.session_state["stats"] = {"A": {}, "B": {}}
     if "last_accum" not in st.session_state:
         st.session_state["last_accum"] = time.time()
+    if "viz_auto" not in st.session_state:
+        st.session_state["viz_auto"] = False
+    if "viz_interval" not in st.session_state:
+        st.session_state["viz_interval"] = 1.0  # segundos
 
-    # --------- Helpers (definidos SEMPRE) ---------
+    # --------- Helpers (iguais aos que já te passei) ---------
     def _ensure_player_stats(eq: str, numero: int):
         return st.session_state["stats"][eq].setdefault(int(numero), {
             "jogado_1t": 0.0, "jogado_2t": 0.0, "banco": 0.0, "doismin": 0.0
         })
 
     def _accumulate_time_tick():
-        """
-        Soma o delta de tempo desde a última atualização para cada atleta,
-        conforme o estado atual e o período (1º/2º).
-        """
+        """Soma o delta de tempo desde a última atualização para cada atleta,
+        conforme o estado atual e o período (1º/2º)."""
         now = time.time()
         dt = max(0.0, now - st.session_state["last_accum"])
         st.session_state["last_accum"] = now
@@ -487,13 +488,20 @@ with abas[3]:
                 })
         return pd.DataFrame(rows).sort_values(["Equipe", "Número"]) if rows else pd.DataFrame()
 
-    # --------- Execução da aba ---------
+    # --------- UI ---------
     st.subheader("Visualização de Dados")
 
-    # 1) Atualiza as estatísticas com o delta desde a última ação
+    # (A) Controle de autoatualização
+    cauto1, cauto2 = st.columns([1,1])
+    with cauto1:
+        st.session_state["viz_auto"] = st.toggle("Atualizar automaticamente (1s)", value=st.session_state["viz_auto"], help="Recalcula os tempos a cada segundo apenas nesta aba.")
+    with cauto2:
+        st.session_state["viz_interval"] = st.number_input("Intervalo (s)", min_value=0.5, max_value=5.0, step=0.5, value=float(st.session_state["viz_interval"]), help="Intervalo da atualização automática desta aba.")
+
+    # (B) Atualiza estatísticas com o delta desde a última renderização
     _accumulate_time_tick()
 
-    # 2) Tabelas por equipe e combinado
+    # (C) Tabelas por equipe e combinado
     df = _stats_to_dataframe()
     if df.empty:
         st.info("Sem dados ainda. Cadastre equipes, defina titulares e inicie o controle do jogo.")
@@ -513,11 +521,10 @@ with abas[3]:
         st.markdown("#### Relatório combinado")
         st.dataframe(df.drop(columns=["CorEquipe"]), use_container_width=True)
 
-        # 3) Download em CSV
         csv = df.drop(columns=["CorEquipe"]).to_csv(index=False).encode("utf-8")
         st.download_button("📥 Baixar CSV (todas as equipes)", data=csv, file_name="relatorio_tempos.csv", mime="text/csv")
 
-    # 4) Ações auxiliares
+    # (D) Ações auxiliares
     colx, coly = st.columns([1,1])
     with colx:
         if st.button("♻️ Zerar estatísticas (Apenas tempos)", help="Zera contadores de minutos; não altera estados dos jogadores."):
@@ -526,3 +533,8 @@ with abas[3]:
             st.success("Estatísticas zeradas.")
     with coly:
         st.caption(f"Período atual: **{st.session_state.get('periodo','1º Tempo')}**")
+
+    # (E) Loop de autoatualização (somente nesta aba e somente se ligado)
+    if st.session_state["viz_auto"]:
+        time.sleep(float(st.session_state["viz_interval"]))
+        st.rerun()

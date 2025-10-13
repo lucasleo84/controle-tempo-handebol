@@ -167,7 +167,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 # -------------------------
-# Estado mínimo do relógio
+# Estado mínimo do relógio e dados
 # -------------------------
 def _init_clock_state():
     if "iniciado" not in st.session_state: st.session_state["iniciado"] = False
@@ -176,10 +176,14 @@ def _init_clock_state():
     if "periodo" not in st.session_state: st.session_state["periodo"] = "1º Tempo"
     if "equipes" not in st.session_state: st.session_state["equipes"] = {"A": [], "B": []}
     if "cores" not in st.session_state: st.session_state["cores"] = {"A": "#00AEEF", "B": "#EC008C"}
+    if "invert_lados" not in st.session_state: st.session_state["invert_lados"] = False
 
 # -------------------------
-# Helpers de jogadores
+# Helpers de nomes/cores/equipe
 # -------------------------
+def get_team_name(eq: str) -> str:
+    return st.session_state.get(f"nome_{eq}") or f"Equipe {eq}"
+
 def atualizar_estado(eq, numero, novo_estado):
     for j in st.session_state["equipes"][eq]:
         if j["numero"] == numero:
@@ -187,7 +191,12 @@ def atualizar_estado(eq, numero, novo_estado):
             return True
     return False
 
+def jogadores_por_estado(eq, estado):
+    # Apenas elegíveis (não expulsos)
+    return [int(j["numero"]) for j in st.session_state["equipes"][eq] if j.get("elegivel", True) and j.get("estado") == estado]
+
 def elenco(eq):
+    # Todos elegíveis (para 2' e expulsão)
     return [int(j["numero"]) for j in st.session_state["equipes"][eq] if j.get("elegivel", True)]
 
 # -------------------------
@@ -308,7 +317,7 @@ def zerar():
     st.toast("🔁 Zerado", icon="🔁")
 
 # -------------------------
-# Substituição retroativa helpers
+# Retroativas: suporte a stats e tempo
 # -------------------------
 def _ensure_player_stats(eq: str, numero: int):
     if "stats" not in st.session_state:
@@ -332,10 +341,9 @@ def _parse_mmss(txt: str) -> int | None:
         return None
 
 # -------------------------
-# Painel por equipe (lado a lado)
+# Painel por equipe (lado a lado) — com segmentação anti-erro
 # -------------------------
 def painel_equipe(eq: str):
-    _init_clock_state()
     cor = st.session_state["cores"].get(eq, "#333")
     nome = get_team_name(eq)
     st.markdown(f"<div class='team-head' style='background:{cor};'>{nome}</div>", unsafe_allow_html=True)
@@ -343,28 +351,29 @@ def painel_equipe(eq: str):
     with st.container():
         st.markdown("<div class='compact'>", unsafe_allow_html=True)
 
-        # Substituição (lista completa em ambos os selects)
+        # Substituição: Sai = jogando | Entra = banco
         st.markdown("<div class='sec-title'>🔁 Substituição</div>", unsafe_allow_html=True)
         cols_sub = st.columns([1,1,1])
-        full = elenco(eq)
-        sai = cols_sub[0].selectbox("Sai", full, key=f"sai_{eq}")
-        entra_opts = [n for n in full if n != sai]
-        entra = cols_sub[1].selectbox("Entra", entra_opts, key=f"entra_{eq}")
-        if cols_sub[2].button("Confirmar", key=f"btn_sub_{eq}", disabled=(len(full) < 2)):
-            if sai != entra:
+        list_sai = jogadores_por_estado(eq, "jogando")
+        list_entra = jogadores_por_estado(eq, "banco")
+        sai = cols_sub[0].selectbox("Sai", list_sai, key=f"sai_{eq}")
+        entra = cols_sub[1].selectbox("Entra", list_entra, key=f"entra_{eq}")
+        if cols_sub[2].button("Confirmar", key=f"btn_sub_{eq}", disabled=(not list_sai or not list_entra)):
+            if sai in list_sai and entra in list_entra:
                 atualizar_estado(eq, sai, "banco")
                 atualizar_estado(eq, entra, "jogando")
                 st.success(f"Substituição: Sai {sai}  ", icon="🔁")
                 st.markdown(f"<span class='chip chip-sai'>Sai {sai}</span><span class='chip chip-ent'>Entra {entra}</span>", unsafe_allow_html=True)
             else:
-                st.error("Selecione jogadores diferentes.")
+                st.error("Seleção inválida para substituição.")
 
         st.markdown("---")
 
-        # 2 minutos e Completou lado a lado — listas completas
+        # 2 minutos e Completou lado a lado
         cols_pen = st.columns([1,1])
         with cols_pen[0]:
             st.markdown("<div class='sec-title'>⛔ 2 minutos</div>", unsafe_allow_html=True)
+            full = elenco(eq)  # todos elegíveis
             jog_2m = st.selectbox("Jogador", full, key=f"doismin_sel_{eq}")
             if st.button("Aplicar 2'", key=f"btn_2min_{eq}", disabled=(len(full)==0)):
                 atualizar_estado(eq, jog_2m, "excluido")
@@ -373,17 +382,22 @@ def painel_equipe(eq: str):
 
         with cols_pen[1]:
             st.markdown("<div class='sec-title'>✅ Completou</div>", unsafe_allow_html=True)
-            comp = st.selectbox("Jogador que entra", full, key=f"comp_sel_{eq}")
-            if st.button("Confirmar retorno", key=f"btn_comp_{eq}", disabled=(len(full)==0)):
-                atualizar_estado(eq, comp, "jogando")
-                st.success(f"Jogador {comp} entrou no jogo.")
+            # Completou: apenas banco + excluído
+            elegiveis_retorno = jogadores_por_estado(eq, "banco") + jogadores_por_estado(eq, "excluido")
+            comp = st.selectbox("Jogador que entra", elegiveis_retorno, key=f"comp_sel_{eq}")
+            if st.button("Confirmar retorno", key=f"btn_comp_{eq}", disabled=(len(elegiveis_retorno)==0)):
+                if comp in elegiveis_retorno:
+                    atualizar_estado(eq, comp, "jogando")
+                    st.success(f"Jogador {comp} entrou no jogo.")
+                else:
+                    st.error("Seleção inválida.")
 
         st.markdown("---")
 
-        # Expulsão (lista completa)
+        # Expulsão (todos elegíveis)
         st.markdown("<div class='sec-title'>🟥 Expulsão</div>", unsafe_allow_html=True)
-        exp = st.selectbox("Jogador", full, key=f"exp_sel_{eq}")
-        if st.button("Confirmar expulsão", key=f"btn_exp_{eq}", disabled=(len(full)==0)):
+        exp = st.selectbox("Jogador", elenco(eq), key=f"exp_sel_{eq}")
+        if st.button("Confirmar expulsão", key=f"btn_exp_{eq}", disabled=(len(elenco(eq))==0)):
             ok = False
             for j in st.session_state["equipes"][eq]:
                 if j["numero"] == exp:
@@ -406,7 +420,7 @@ with abas[2]:
     st.subheader("Controle do Jogo")
 
     # Linha do relógio e período
-    cc1, cc2, cc3, cc4 = st.columns([1,1,1,1])
+    cc1, cc2, cc3, cc4, cc5 = st.columns([1,1,1,1,1])
     with cc1:
         if st.button("▶️ Iniciar", key="clk_start"): iniciar()
     with cc2:
@@ -419,25 +433,30 @@ with abas[2]:
             index=0 if st.session_state["periodo"]=="1º Tempo" else 1,
             key="sel_periodo"
         )
+    with cc5:
+        st.session_state["invert_lados"] = st.toggle("Inverter lados (A ⇄ B)", value=st.session_state["invert_lados"])
 
     # Cronômetro JS (sempre visível)
     render_cronometro_js()
 
-    # Painéis lado a lado com NOMES das equipes
-    colA, colB = st.columns(2)
-    with colA:
-        if st.session_state["equipes"]["A"]:
-            painel_equipe("A")
+    # Painéis lado a lado — ordem respeita "Inverter lados"
+    lados = ("A", "B") if not st.session_state["invert_lados"] else ("B", "A")
+    col_esq, col_dir = st.columns(2)
+    with col_esq:
+        if st.session_state["equipes"][lados[0]]:
+            st.markdown(f"#### {get_team_name(lados[0])}")
+            painel_equipe(lados[0])
         else:
-            st.info(f"Cadastre a {get_team_name('A')} na aba de Configuração.")
-    with colB:
-        if st.session_state["equipes"]["B"]:
-            painel_equipe("B")
+            st.info(f"Cadastre a {get_team_name(lados[0])} na aba de Configuração.")
+    with col_dir:
+        if st.session_state["equipes"][lados[1]]:
+            st.markdown(f"#### {get_team_name(lados[1])}")
+            painel_equipe(lados[1])
         else:
-            st.info(f"Cadastre a {get_team_name('B')} na aba de Configuração.")
+            st.info(f"Cadastre a {get_team_name(lados[1])} na aba de Configuração.")
 
     # -----------------------------------------------------
-    # Substituições avulsas (retroativas) — SEM checkbox; sempre aplica ao estado atual
+    # Substituições avulsas (retroativas) — sempre aplica ao estado atual
     # -----------------------------------------------------
     st.divider()
     st.markdown("## 📝 Substituições avulsas (retroativas)")
@@ -461,7 +480,7 @@ with abas[2]:
         entra_num = st.selectbox("Entra", entra_opcoes, key="retro_entra")
     with c3:
         tempo_str = st.text_input("Tempo do jogo (MM:SS)", value="00:00", key="retro_tempo",
-                                  help="Ex.: 12:34 significa que a substituição deveria ter ocorrido aos 12min34s.")
+                                  help="Ex.: 12:34 = ocorreu aos 12min34s.")
 
     def aplicar_retro():
         t_mark = _parse_mmss(tempo_str)
@@ -483,10 +502,8 @@ with abas[2]:
         s_in = _ensure_player_stats(equipe_sel, int(entra_num))
 
         # Corrige acumulados retroativamente
-        s_out[jog_key] = max(0.0, s_out[jog_key] - dt)
-        s_out["banco"] += dt
-        s_in["banco"] = max(0.0, s_in["banco"] - dt)
-        s_in[jog_key] += dt
+        s_out[jog_key] = max(0.0, s_out[jog_key] - dt);  s_out["banco"] += dt
+        s_in["banco"] = max(0.0, s_in["banco"] - dt);    s_in[jog_key] += dt
 
         # SEMPRE aplica ao estado atual (comportamento padrão solicitado)
         atualizar_estado(equipe_sel, int(sai_num), "banco")

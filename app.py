@@ -557,14 +557,9 @@ with abas[2]:
             f"comp_sel_{equipe_sel}",
             f"exp_sel_{equipe_sel}",
         ):
-            
-            # 💬 preparar mensagem "flash" para aparecer após o rerun
-            st.session_state["flash_text"] = f"Substituição retroativa realizada: Sai {sai_num} / Entra {entra_num}"
-            st.session_state["flash_html"] = (
-                f"<span class='chip chip-sai'>Sai {sai_num}</span>"
-                f"<span class='chip chip-ent'>Entra {entra_num}</span>"
-            )
 
+            st.session_state.pop(k, None)  # em vez de if...del
+    
     # Limpa seleções de UI dessa equipe e força re-render
     for k in (
         f"sai_{equipe_sel}", f"entra_{equipe_sel}", f"doismin_sel_{equipe_sel}",

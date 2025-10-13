@@ -347,9 +347,9 @@ def painel_equipe(eq: str):
         st.markdown("<div class='sec-title'>🔁 Substituição</div>", unsafe_allow_html=True)
         cols_sub = st.columns([1,1,1])
         full = elenco(eq)
-        sai = cols_sub[0].selectbox("Sai (elenco completo)", full, key=f"sai_{eq}")
+        sai = cols_sub[0].selectbox("Sai", full, key=f"sai_{eq}")
         entra_opts = [n for n in full if n != sai]
-        entra = cols_sub[1].selectbox("Entra (elenco completo)", entra_opts, key=f"entra_{eq}")
+        entra = cols_sub[1].selectbox("Entra", entra_opts, key=f"entra_{eq}")
         if cols_sub[2].button("Confirmar", key=f"btn_sub_{eq}", disabled=(len(full) < 2)):
             if sai != entra:
                 atualizar_estado(eq, sai, "banco")
@@ -365,7 +365,7 @@ def painel_equipe(eq: str):
         cols_pen = st.columns([1,1])
         with cols_pen[0]:
             st.markdown("<div class='sec-title'>⛔ 2 minutos</div>", unsafe_allow_html=True)
-            jog_2m = st.selectbox("Jogador (elenco completo)", full, key=f"doismin_sel_{eq}")
+            jog_2m = st.selectbox("Jogador", full, key=f"doismin_sel_{eq}")
             if st.button("Aplicar 2'", key=f"btn_2min_{eq}", disabled=(len(full)==0)):
                 atualizar_estado(eq, jog_2m, "excluido")
                 st.warning(f"Jogador {jog_2m} excluído por 2 minutos.")
@@ -373,7 +373,7 @@ def painel_equipe(eq: str):
 
         with cols_pen[1]:
             st.markdown("<div class='sec-title'>✅ Completou</div>", unsafe_allow_html=True)
-            comp = st.selectbox("Jogador que entra (elenco completo)", full, key=f"comp_sel_{eq}")
+            comp = st.selectbox("Jogador que entra", full, key=f"comp_sel_{eq}")
             if st.button("Confirmar retorno", key=f"btn_comp_{eq}", disabled=(len(full)==0)):
                 atualizar_estado(eq, comp, "jogando")
                 st.success(f"Jogador {comp} entrou no jogo.")
@@ -382,7 +382,7 @@ def painel_equipe(eq: str):
 
         # Expulsão (lista completa)
         st.markdown("<div class='sec-title'>🟥 Expulsão</div>", unsafe_allow_html=True)
-        exp = st.selectbox("Jogador (elenco completo)", full, key=f"exp_sel_{eq}")
+        exp = st.selectbox("Jogador", full, key=f"exp_sel_{eq}")
         if st.button("Confirmar expulsão", key=f"btn_exp_{eq}", disabled=(len(full)==0)):
             ok = False
             for j in st.session_state["equipes"][eq]:
@@ -455,10 +455,10 @@ with abas[2]:
     all_nums = elenco(equipe_sel)
     c1, c2, c3 = st.columns([1,1,1])
     with c1:
-        sai_num = st.selectbox("Sai (elenco completo)", all_nums, key="retro_sai")
+        sai_num = st.selectbox("Sai", all_nums, key="retro_sai")
     with c2:
         entra_opcoes = [n for n in all_nums if n != sai_num]
-        entra_num = st.selectbox("Entra (elenco completo)", entra_opcoes, key="retro_entra")
+        entra_num = st.selectbox("Entra", entra_opcoes, key="retro_entra")
     with c3:
         tempo_str = st.text_input("Tempo do jogo (MM:SS)", value="00:00", key="retro_tempo",
                                   help="Ex.: 12:34 significa que a substituição deveria ter ocorrido aos 12min34s.")

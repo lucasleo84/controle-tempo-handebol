@@ -220,11 +220,16 @@ def render_cronometro_js():
         .digital { font-family:'Courier New', monospace; font-size:28px; font-weight:700;
                    color:#FFD700; background:#000; padding:6px 16px; border-radius:8px;
                    letter-spacing:2px; box-shadow:0 0 8px rgba(255,215,0,.4); display:inline-block; }
-        .team-head { color:#fff; padding:6px 10px; border-radius:8px; font-size:14px; font-weight:700; margin-bottom:8px; }
+        .team-head { color:#fff; padding:6px 10px; border-radius:8px; font-size:14px; font-weight:700; margin-bottom:6px; }
         .sec-title { font-size:14px; font-weight:700; margin:6px 0 4px; }
         .compact .stSelectbox label, .compact .stButton button, .compact .stRadio label { font-size:13px!important; }
         .chip { display:inline-block; padding:2px 6px; border-radius:6px; font-size:12px; margin-left:6px; }
-        .chip-sai { background:#ffe5e5; color:#a30000; } .chip-ent { background:#e7ffe7; color:#005a00; }
+        .chip-sai { background:#ffe5e5; color:#a30000; }
+        .chip-ent { background:#e7ffe7; color:#005a00; }
+        /* linha de quadra */
+        .chips-line { margin:6px 0 10px; display:flex; flex-wrap:wrap; gap:6px; }
+        .chip-quadra { background:#e8ffe8; color:#0b5; border:1px solid #bfe6bf; }
+        .chip-inelegivel { background:#f2f3f5; color:#888; border:1px solid #dcdfe3; opacity:.8; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -308,6 +313,22 @@ def painel_equipe(eq: str):
     cor = st.session_state["cores"].get(eq, "#333")
     nome = get_team_name(eq)
     st.markdown(f"<div class='team-head' style='background:{cor};'>{nome}</div>", unsafe_allow_html=True)
+
+    # Linha com quem está em quadra (jogando) e quem está nos 2' (cinza)
+    jogadores = st.session_state["equipes"].get(eq, [])
+    on_court = sorted([int(j["numero"]) for j in jogadores if j.get("estado") == "jogando" and j.get("elegivel", True)])
+    excluidos = sorted([int(j["numero"]) for j in jogadores if j.get("estado") == "excluido" and j.get("elegivel", True)])
+
+    chips = []
+    for num in on_court:
+        chips.append(f"<span class='chip chip-quadra' title='Jogando'>#{num}</span>")
+    for num in excluidos:
+        chips.append(f"<span class='chip chip-inelegivel' title='Cumprindo 2 minutos'>#{num}</span>")
+
+    if chips:
+        st.markdown(f"<div class='chips-line'>{''.join(chips)}</div>", unsafe_allow_html=True)
+    else:
+        st.caption("Nenhum jogador em quadra no momento.")
 
     with st.container():
         st.markdown("<div class='compact'>", unsafe_allow_html=True)
@@ -411,7 +432,7 @@ with abas[2]:
     col_esq, col_dir = st.columns(2)
     with col_esq:
         if st.session_state["equipes"][lados[0]]:
-            st.markdown(f"#### {get_team_name(lados[0])}")
+            st.markdown(f"#### {get_team_name(lados[0])]}")
             painel_equipe(lados[0])
         else:
             st.info(f"Cadastre a {get_team_name(lados[0])} na aba de Configuração.")
@@ -541,7 +562,7 @@ with abas[2]:
         atualizar_estado(equipe_sel, int(sai_num), "banco")
         atualizar_estado(equipe_sel, int(entra_num), "jogando")
 
-        # Mensagem detalhada (fica para logs locais da execução atual)
+        # Mensagem detalhada (log local desta execução)
         mm_dt, ss_dt = int(dt // 60), int(dt % 60)
         st.info(
             f"Retroativo aplicado ({periodo_sel}) em {get_team_name(equipe_sel)}: "
@@ -568,7 +589,7 @@ with abas[2]:
     if st.button("➕ Inserir substituição retroativa", use_container_width=True, key="retro_btn"):
         aplicar_retro()
 
-    # Mensagem "flash" (chips) vinda do último rerun
+    # Mensagem “flash” da retroativa (aparece AQUI, abaixo do botão)
     if "flash_text" in st.session_state or "flash_html" in st.session_state:
         if "flash_text" in st.session_state:
             st.success(st.session_state["flash_text"], icon="🔁")
@@ -576,6 +597,7 @@ with abas[2]:
             st.markdown(st.session_state["flash_html"], unsafe_allow_html=True)
         st.session_state.pop("flash_text", None)
         st.session_state.pop("flash_html", None)
+
 
 # =====================================================
 # ABA 4 — VISUALIZAÇÃO DE DADOS (auto opcional)

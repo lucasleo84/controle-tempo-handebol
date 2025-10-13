@@ -403,7 +403,7 @@ def painel_equipe(eq: str):
                 atualizar_estado(eq, jog_2m, "excluido")
                 st.warning(f"Jogador {jog_2m} excluído por 2 minutos.")
                 render_cronometro_exclusao()
-             if st.button("Aplicar 2'", key=f"btn_2min_{eq}", disabled=(len(full)==0)):
+            if st.button("Aplicar 2'", key=f"btn_2min_{eq}", disabled=(len(full)==0)):
                 # Estado passa a 'excluido' e registra penalidade com início/fim exatos
                 atualizar_estado(eq, jog_2m, "excluido")
                 start = tempo_logico_atual()

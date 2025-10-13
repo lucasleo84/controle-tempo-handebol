@@ -200,27 +200,27 @@ def jogadores_por_estado(eq, estado):
     return [int(j["numero"]) for j in st.session_state["equipes"][eq] if j.get("elegivel", True) and j.get("estado") == estado]
 
 def elenco(eq):
-    def _equipe_penalidades(eq: str):
-    return st.session_state["penalties"].get(eq, [])
+def _equipe_penalidades(eq: str):
+return st.session_state["penalties"].get(eq, [])
 
-    def _registrar_exclusao(eq: str, numero: int, start_elapsed: float):
-        st.session_state["penalties"][eq].append({
-            "numero": int(numero),
-            "start": float(start_elapsed),
-            "end": float(start_elapsed) + 120.0,   # 2 minutos fixos
-            "consumido": False
-        })
-    
-    def _penalidades_ativas(eq: str, agora_elapsed: float):
-        # Ativas = agora < end e não consumidas
-        return [p for p in _equipe_penalidades(eq) if (agora_elapsed < p["end"]) and not p["consumido"]]
-    
-    def _penalidades_concluidas_nao_consumidas(eq: str, agora_elapsed: float):
-        # Concluídas = agora >= end e não consumidas
-        return [p for p in _equipe_penalidades(eq) if (agora_elapsed >= p["end"]) and not p["consumido"]]
-    
-        # Todos elegíveis (para 2' e expulsão)
-        return [int(j["numero"]) for j in st.session_state["equipes"][eq] if j.get("elegivel", True)]
+def _registrar_exclusao(eq: str, numero: int, start_elapsed: float):
+    st.session_state["penalties"][eq].append({
+        "numero": int(numero),
+        "start": float(start_elapsed),
+        "end": float(start_elapsed) + 120.0,   # 2 minutos fixos
+        "consumido": False
+    })
+
+def _penalidades_ativas(eq: str, agora_elapsed: float):
+    # Ativas = agora < end e não consumidas
+    return [p for p in _equipe_penalidades(eq) if (agora_elapsed < p["end"]) and not p["consumido"]]
+
+def _penalidades_concluidas_nao_consumidas(eq: str, agora_elapsed: float):
+    # Concluídas = agora >= end e não consumidas
+    return [p for p in _equipe_penalidades(eq) if (agora_elapsed >= p["end"]) and not p["consumido"]]
+
+    # Todos elegíveis (para 2' e expulsão)
+    return [int(j["numero"]) for j in st.session_state["equipes"][eq] if j.get("elegivel", True)]
 
 
 # -------------------------

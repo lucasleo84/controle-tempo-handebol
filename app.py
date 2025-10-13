@@ -549,7 +549,17 @@ with abas[2]:
         ):
             if k in st.session_state:
                 del st.session_state[k]
+        # 💬 Feedback visual como nas outras ações
+        st.success(f"Substituição retroativa realizada: Sai {sai_num} / Entra {entra_num}", icon="🔁")
+        st.markdown(
+            f"<span class='chip chip-sai'>Sai {sai_num}</span>"
+            f"<span class='chip chip-ent'>Entra {entra_num}</span>",
+            unsafe_allow_html=True
+        )
+        # (opcional) toast discreto no canto
+        st.toast("Substituição retroativa registrada", icon="✅")
 
+       
         # --- NOVO: força re-render IMEDIATO (listas “jogando”/“banco” sobem atualizadas)
         st.rerun()
 

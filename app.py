@@ -156,6 +156,8 @@ def _init_clock_state():
     if "ultimo_tick" not in st.session_state: st.session_state["ultimo_tick"] = time.time()
     if "cronometro" not in st.session_state: st.session_state["cronometro"] = 0.0
     if "periodo" not in st.session_state: st.session_state["periodo"] = "1º Tempo"
+    if "equipes" not in st.session_state: st.session_state["equipes"] = {"A": [], "B": []}
+    if "cores" not in st.session_state: st.session_state["cores"] = {"A": "#00AEEF", "B": "#EC008C"}
 
 # -------------------------
 # Helpers de jogadores
@@ -167,8 +169,8 @@ def atualizar_estado(eq, numero, novo_estado):
             return True
     return False
 
-def jogadores_por_estado(eq, estado):
-    return [j["numero"] for j in st.session_state["equipes"][eq] if j["estado"] == estado and j["elegivel"]]
+def elenco(eq):
+    return [int(j["numero"]) for j in st.session_state["equipes"][eq] if j.get("elegivel", True)]
 
 # -------------------------
 # Cronômetro principal (JS)
@@ -180,7 +182,6 @@ def render_cronometro_js():
 
     st.markdown("""
         <style>
-        /* Barra fixa do cronômetro */
         .cronofixo {
             position: sticky; top: 0; z-index: 999;
             text-align:center; padding:6px 0; background:#ffffff;
@@ -191,21 +192,14 @@ def render_cronometro_js():
             color: #FFD700; background:#000; padding: 6px 16px; border-radius: 8px;
             display:inline-block; letter-spacing: 2px; box-shadow: 0 0 8px rgba(255,215,0,.4);
         }
-        /* Painéis compactos */
         .team-head {
             color:#fff; padding:6px 10px; border-radius:8px; font-size:14px; font-weight:700; margin-bottom:8px;
         }
-        .sec-title {
-            font-size:14px; font-weight:700; margin:6px 0 4px;
-        }
+        .sec-title { font-size:14px; font-weight:700; margin:6px 0 4px; }
         .note { font-size:12px; color:#666; }
-        .compact .stSelectbox label, .compact .stButton button, .compact .stRadio label {
-            font-size: 13px !important;
-        }
+        .compact .stSelectbox label, .compact .stButton button, .compact .stRadio label { font-size: 13px !important; }
         .compact .stSelectbox div[data-baseweb="select"] { font-size:13px !important; }
-        .chip {
-            display:inline-block; padding:2px 6px; border-radius:6px; font-size:12px; margin-left:6px;
-        }
+        .chip { display:inline-block; padding:2px 6px; border-radius:6px; font-size:12px; margin-left:6px; }
         .chip-sai { background:#ffe5e5; color:#a30000; }
         .chip-ent { background:#e7ffe7; color:#005a00; }
         </style>
@@ -296,67 +290,82 @@ def zerar():
     st.toast("🔁 Zerado", icon="🔁")
 
 # -------------------------
+# Substituição retroativa helpers
+# -------------------------
+def _ensure_player_stats(eq: str, numero: int):
+    if "stats" not in st.session_state:
+        st.session_state["stats"] = {"A": {}, "B": {}}
+    return st.session_state["stats"][eq].setdefault(int(numero), {
+        "jogado_1t": 0.0, "jogado_2t": 0.0, "banco": 0.0, "doismin": 0.0
+    })
+
+def tempo_logico_atual() -> float:
+    if st.session_state["iniciado"]:
+        return st.session_state["cronometro"] + (time.time() - st.session_state["ultimo_tick"])
+    return st.session_state["cronometro"]
+
+def _parse_mmss(txt: str) -> int | None:
+    try:
+        mm, ss = txt.strip().split(":")
+        m = int(mm); s = int(ss)
+        if m < 0 or s < 0 or s >= 60: return None
+        return m*60 + s
+    except Exception:
+        return None
+
+# -------------------------
 # Painel por equipe (lado a lado)
 # -------------------------
 def painel_equipe(eq: str):
+    _init_clock_state()
     cor = st.session_state["cores"].get(eq, "#333")
-    st.markdown(f"<div class='team-head' style='background:{cor};'>Equipe {eq}</div>", unsafe_allow_html=True)
+    nome = get_team_name(eq)
+    st.markdown(f"<div class='team-head' style='background:{cor};'>{nome}</div>", unsafe_allow_html=True)
 
     with st.container():
         st.markdown("<div class='compact'>", unsafe_allow_html=True)
 
-        # Substituição
+        # Substituição (lista completa em ambos os selects)
         st.markdown("<div class='sec-title'>🔁 Substituição</div>", unsafe_allow_html=True)
         cols_sub = st.columns([1,1,1])
-        jogando = jogadores_por_estado(eq, "jogando")
-        banco = jogadores_por_estado(eq, "banco")
-        sai = cols_sub[0].selectbox("Sai (jogando)", jogando, key=f"sai_{eq}")
-        entra = cols_sub[1].selectbox("Entra (banco)", banco, key=f"entra_{eq}")
-        if cols_sub[2].button("Confirmar", key=f"btn_sub_{eq}", disabled=(not jogando or not banco)):
-            if sai in jogando and entra in banco and sai != entra:
+        full = elenco(eq)
+        sai = cols_sub[0].selectbox("Sai (elenco completo)", full, key=f"sai_{eq}")
+        entra_opts = [n for n in full if n != sai]
+        entra = cols_sub[1].selectbox("Entra (elenco completo)", entra_opts, key=f"entra_{eq}")
+        if cols_sub[2].button("Confirmar", key=f"btn_sub_{eq}", disabled=(len(full) < 2)):
+            if sai != entra:
                 atualizar_estado(eq, sai, "banco")
                 atualizar_estado(eq, entra, "jogando")
                 st.success(f"Substituição: Sai {sai}  ", icon="🔁")
                 st.markdown(f"<span class='chip chip-sai'>Sai {sai}</span><span class='chip chip-ent'>Entra {entra}</span>", unsafe_allow_html=True)
             else:
-                st.error("Seleção inválida para substituição.")
+                st.error("Selecione jogadores diferentes.")
 
         st.markdown("---")
 
-        # 2 minutos e Completou lado a lado
+        # 2 minutos e Completou lado a lado — listas completas
         cols_pen = st.columns([1,1])
         with cols_pen[0]:
             st.markdown("<div class='sec-title'>⛔ 2 minutos</div>", unsafe_allow_html=True)
-            jog_2m = st.selectbox("Jogador (em quadra)", jogando, key=f"doismin_sel_{eq}")
-            if st.button("Aplicar 2'", key=f"btn_2min_{eq}", disabled=(not jogando)):
-                if jog_2m in jogando:
-                    atualizar_estado(eq, jog_2m, "excluido")
-                    st.warning(f"Jogador {jog_2m} excluído por 2 minutos.")
-                    render_cronometro_exclusao()
-                else:
-                    st.error("Selecione um jogador em quadra.")
+            jog_2m = st.selectbox("Jogador (elenco completo)", full, key=f"doismin_sel_{eq}")
+            if st.button("Aplicar 2'", key=f"btn_2min_{eq}", disabled=(len(full)==0)):
+                atualizar_estado(eq, jog_2m, "excluido")
+                st.warning(f"Jogador {jog_2m} excluído por 2 minutos.")
+                render_cronometro_exclusao()
 
         with cols_pen[1]:
             st.markdown("<div class='sec-title'>✅ Completou</div>", unsafe_allow_html=True)
-            # Agora permite retorno do excluído OU entrada de alguém do banco
-            elegiveis_retorno = jogadores_por_estado(eq, "excluido") + jogadores_por_estado(eq, "banco")
-            comp = st.selectbox("Jogador que entra", elegiveis_retorno, key=f"comp_sel_{eq}")
-            if st.button("Confirmar retorno", key=f"btn_comp_{eq}", disabled=(not elegiveis_retorno)):
-                if comp in elegiveis_retorno:
-                    atualizar_estado(eq, comp, "jogando")
-                    st.success(f"Jogador {comp} entrou após 2'.")
-                else:
-                    st.error("Seleção inválida.")
+            comp = st.selectbox("Jogador que entra (elenco completo)", full, key=f"comp_sel_{eq}")
+            if st.button("Confirmar retorno", key=f"btn_comp_{eq}", disabled=(len(full)==0)):
+                atualizar_estado(eq, comp, "jogando")
+                st.success(f"Jogador {comp} entrou no jogo.")
 
         st.markdown("---")
 
-        # Expulsão
+        # Expulsão (lista completa)
         st.markdown("<div class='sec-title'>🟥 Expulsão</div>", unsafe_allow_html=True)
-        # Pode expulsar alguém jogando ou excluído (situações de disciplina)
-        expulsaveis = jogadores_por_estado(eq, "jogando") + jogadores_por_estado(eq, "excluido")
-        exp = st.selectbox("Jogador", expulsaveis, key=f"exp_sel_{eq}")
-        if st.button("Confirmar expulsão", key=f"btn_exp_{eq}", disabled=(not expulsaveis)):
-            # estado expulso e elegível = False
+        exp = st.selectbox("Jogador (elenco completo)", full, key=f"exp_sel_{eq}")
+        if st.button("Confirmar expulsão", key=f"btn_exp_{eq}", disabled=(len(full)==0)):
             ok = False
             for j in st.session_state["equipes"][eq]:
                 if j["numero"] == exp:
@@ -396,45 +405,36 @@ with abas[2]:
     # Cronômetro JS (sempre visível)
     render_cronometro_js()
 
-    # Painéis lado a lado (A e B)
+    # Painéis lado a lado com NOMES das equipes
     colA, colB = st.columns(2)
     with colA:
         if st.session_state["equipes"]["A"]:
             painel_equipe("A")
         else:
-            st.info("Cadastre a Equipe A na aba de Configuração.")
+            st.info(f"Cadastre a {get_team_name('A')} na aba de Configuração.")
     with colB:
         if st.session_state["equipes"]["B"]:
             painel_equipe("B")
         else:
-            st.info("Cadastre a Equipe B na aba de Configuração.")
+            st.info(f"Cadastre a {get_team_name('B')} na aba de Configuração.")
 
-# -----------------------------------------------------
-# Substituições avulsas (retroativas) — correção de tempos
-# -----------------------------------------------------
-st.divider()
-st.markdown("## 📝 Substituições avulsas (retroativas)")
+    # -----------------------------------------------------
+    # Substituições avulsas (retroativas) — SEM checkbox; sempre aplica ao estado atual
+    # -----------------------------------------------------
+    st.divider()
+    st.markdown("## 📝 Substituições avulsas (retroativas)")
 
-# Garantias mínimas para stats (se a aba 4 ainda não rodou)
-if "stats" not in st.session_state:
-    st.session_state["stats"] = {"A": {}, "B": {}}
-if "periodo" not in st.session_state:
-    st.session_state["periodo"] = "1º Tempo"
+    if "stats" not in st.session_state:
+        st.session_state["stats"] = {"A": {}, "B": {}}
 
-def _ensure_player_stats(eq: str, numero: int):
-    return st.session_state["stats"][eq].setdefault(int(numero), {
-        "jogado_1t": 0.0, "jogado_2t": 0.0, "banco": 0.0, "doismin": 0.0
-    })
-
-with st.container():
     col_eq, col_time = st.columns([1,1])
     with col_eq:
-        equipe_sel = st.radio("Equipe", ["A", "B"], horizontal=True, key="retro_eq")
+        equipe_sel = st.radio("Equipe", ["A", "B"], horizontal=True, key="retro_eq",
+                              format_func=lambda x: get_team_name(x))
     with col_time:
         periodo_sel = st.selectbox("Período da jogada", ["1º Tempo", "2º Tempo"], key="retro_periodo")
 
-    # Lista completa de atletas da equipe (sem filtrar por estado)
-    all_nums = [j["numero"] for j in st.session_state["equipes"].get(equipe_sel, [])]
+    all_nums = elenco(equipe_sel)
     c1, c2, c3 = st.columns([1,1,1])
     with c1:
         sai_num = st.selectbox("Sai (elenco completo)", all_nums, key="retro_sai")
@@ -445,59 +445,44 @@ with st.container():
         tempo_str = st.text_input("Tempo do jogo (MM:SS)", value="00:00", key="retro_tempo",
                                   help="Ex.: 12:34 significa que a substituição deveria ter ocorrido aos 12min34s.")
 
-    aplicar_estado = st.checkbox("Aplicar também ao estado atual (fazer a troca agora)", value=True, key="retro_apply_state")
+    def aplicar_retro():
+        t_mark = _parse_mmss(tempo_str)
+        if t_mark is None:
+            st.error("Tempo inválido. Use o formato MM:SS (ex.: 07:45).")
+            return
+        if sai_num == entra_num:
+            st.error("Os jogadores de 'Sai' e 'Entra' precisam ser diferentes.")
+            return
 
-    def _parse_mmss(txt: str) -> int | None:
-        try:
-            mm, ss = txt.strip().split(":")
-            m = int(mm); s = int(ss)
-            if m < 0 or s < 0 or s >= 60: return None
-            return m*60 + s
-        except Exception:
-            return None
+        now_elapsed = tempo_logico_atual()
+        dt = max(0.0, float(now_elapsed) - float(t_mark))
+        if dt <= 0:
+            st.warning("O tempo informado é igual ou maior que o tempo atual — nada a corrigir.")
+            return
+
+        jog_key = "jogado_1t" if periodo_sel == "1º Tempo" else "jogado_2t"
+        s_out = _ensure_player_stats(equipe_sel, int(sai_num))
+        s_in = _ensure_player_stats(equipe_sel, int(entra_num))
+
+        # Corrige acumulados retroativamente
+        s_out[jog_key] = max(0.0, s_out[jog_key] - dt)
+        s_out["banco"] += dt
+        s_in["banco"] = max(0.0, s_in["banco"] - dt)
+        s_in[jog_key] += dt
+
+        # SEMPRE aplica ao estado atual (comportamento padrão solicitado)
+        atualizar_estado(equipe_sel, int(sai_num), "banco")
+        atualizar_estado(equipe_sel, int(entra_num), "jogando")
+
+        mm_dt, ss_dt = int(dt//60), int(dt%60)
+        st.success(
+            f"Retroativo aplicado ({periodo_sel}) em {get_team_name(equipe_sel)}: "
+            f"Sai {sai_num} (−{mm_dt:02d}:{ss_dt:02d} jogado, + banco) | "
+            f"Entra {entra_num} (+ jogado, − banco) a partir de {tempo_str} até agora."
+        )
 
     if st.button("➕ Inserir substituição retroativa", use_container_width=True, key="retro_btn"):
-        # 1) validar campos
-        if not all_nums:
-            st.error("Nenhum jogador cadastrado para a equipe selecionada.")
-        else:
-            t_mark = _parse_mmss(tempo_str)
-            if t_mark is None:
-                st.error("Tempo inválido. Use o formato MM:SS (ex.: 07:45).")
-            elif sai_num == entra_num:
-                st.error("Os jogadores de 'Sai' e 'Entra' precisam ser diferentes.")
-            else:
-                # 2) calcular intervalo entre o tempo informado e o tempo atual
-                now_elapsed = tempo_logico_atual()  # tempo oficial do jogo em segundos (do seu cronômetro)
-                dt = max(0.0, float(now_elapsed) - float(t_mark))
-                if dt <= 0:
-                    st.warning("O tempo informado é igual ou maior que o tempo atual — nada a corrigir.")
-                else:
-                    # 3) corrigir estatísticas no período escolhido
-                    jog_key = "jogado_1t" if periodo_sel == "1º Tempo" else "jogado_2t"
-                    s_out = _ensure_player_stats(equipe_sel, int(sai_num))
-                    s_in = _ensure_player_stats(equipe_sel, int(entra_num))
-
-                    # Sai: remover dt do jogado_X (sem ficar negativo) e somar em banco
-                    s_out[jog_key] = max(0.0, s_out[jog_key] - dt)
-                    s_out["banco"] += dt
-
-                    # Entra: remover dt do banco (sem ficar negativo) e somar em jogado_X
-                    s_in["banco"] = max(0.0, s_in["banco"] - dt)
-                    s_in[jog_key] += dt
-
-                    # 4) (opcional) aplicar estado atual agora
-                    if aplicar_estado:
-                        atualizar_estado(equipe_sel, int(sai_num), "banco")
-                        atualizar_estado(equipe_sel, int(entra_num), "jogando")
-
-                    # 5) feedback
-                    mm_dt, ss_dt = int(dt//60), int(dt%60)
-                    st.success(
-                        f"Retroativo aplicado ({periodo_sel}): "
-                        f"Sai {sai_num} (−{mm_dt:02d}:{ss_dt:02d} jogado, + banco) | "
-                        f"Entra {entra_num} (+ jogado, − banco) a partir de {tempo_str} até agora."
-                    )
+        aplicar_retro()
 
 # =====================================================
 # ABA 4 — VISUALIZAÇÃO DE DADOS (com autoatualização opcional)
@@ -602,7 +587,7 @@ with abas[3]:
                 continue
             cor = sub["CorEquipe"].iloc[0]
             st.markdown(
-                f"<div style='background:{cor};color:#fff;padding:6px 10px;border-radius:8px;font-weight:700;margin-top:8px;'>Equipe {eq}</div>",
+                f"<div style='background:{cor};color:#fff;padding:6px 10px;border-radius:8px;font-weight:700;margin-top:8px;'>{get_team_name(eq)}</div>",
                 unsafe_allow_html=True
             )
             st.dataframe(sub.drop(columns=["CorEquipe"]), use_container_width=True)

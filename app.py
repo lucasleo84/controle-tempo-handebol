@@ -29,7 +29,7 @@ abas = st.tabs([
 ])
 
 # =====================================================
-# Helpers básicos compartilhados (usadas em várias abas)
+# Helpers básicos compartilhados
 # =====================================================
 def get_team_name(eq: str) -> str:
     """Nome configurado da equipe (A/B), com fallback."""
@@ -59,27 +59,6 @@ def elenco(eq: str):
         if j.get("elegivel", True)
     ]
 
-def tempo_logico_atual() -> float:
-    """Segundos decorridos no cronômetro (inclui trecho desde o último start)."""
-    if st.session_state.get("iniciado", False):
-        return st.session_state.get("cronometro", 0.0) + (
-            time.time() - st.session_state.get("ultimo_tick", time.time())
-        )
-    return st.session_state.get("cronometro", 0.0)
-
-def _ensure_player_stats(eq: str, numero: int):
-    """Garante estrutura de stats p/ jogador."""
-    if "stats" not in st.session_state:
-        st.session_state["stats"] = {"A": {}, "B": {}}
-    return st.session_state["stats"][eq].setdefault(int(numero), {
-        "jogado_1t": 0.0, "jogado_2t": 0.0, "banco": 0.0, "doismin": 0.0
-    })
-
-def _period_key() -> str:
-    """Chave de stats do período atual."""
-    per = st.session_state.get("periodo", "1º Tempo")
-    return "jogado_1t" if per == "1º Tempo" else "jogado_2t"
-
 
 # =====================================================
 # ABA 1 — CONFIGURAÇÃO DA EQUIPE
@@ -104,7 +83,7 @@ with abas[0]:
         with col:
             st.markdown(f"### {get_team_name(eq)}")
 
-            st.text_input(f"Nome da equipe {eq}", key=f"nome_{eq}")
+            nome = st.text_input(f"Nome da equipe {eq}", key=f"nome_{eq}")
             qtd = st.number_input(
                 f"Quantidade de jogadores ({eq})",
                 min_value=1, max_value=20, step=1,
@@ -178,23 +157,10 @@ with abas[1]:
                 if not titulares_sel:
                     st.error("Selecione pelo menos 1 titular.")
                 else:
-                    # define estados
                     sel = set(map(int, titulares_sel))
                     for j in st.session_state["equipes"][eq]:
                         j["estado"] = "jogando" if j["numero"] in sel else "banco"
                         j["elegivel"] = True
-
-                    # ✅ novo: credita apenas uma vez por jogador/por período
-                    elapsed = tempo_logico_atual()  # segundos até aqui
-                    if elapsed > 0:
-                        jog_key = _period_key()
-                        flag_key = "cred_1t" if jog_key == "jogado_1t" else "cred_2t"
-                        for num in sel:
-                            s = _ensure_player_stats(eq, num)
-                            if not s.get(flag_key, False):
-                                s[jog_key] += elapsed
-                                s["banco"] = max(0.0, s["banco"] - elapsed)
-                                s[flag_key] = True                  
                     st.session_state["titulares_definidos"][eq] = True
                     st.success(f"Titulares de {get_team_name(eq)} registrados.")
         with c2:
@@ -206,6 +172,10 @@ with abas[1]:
 # =====================================================
 # ABA 3 — CONTROLE DO JOGO (entradas, saídas e penalidades)
 # =====================================================
+import time, json
+import streamlit.components.v1 as components
+from string import Template  # ok repetir o import; não dá erro
+
 # ---------- Estado mínimo do relógio e dados ----------
 def _init_clock_state():
     if "iniciado" not in st.session_state: st.session_state["iniciado"] = False
@@ -214,6 +184,7 @@ def _init_clock_state():
     if "periodo" not in st.session_state: st.session_state["periodo"] = "1º Tempo"
     if "invert_lados" not in st.session_state: st.session_state["invert_lados"] = False
     if "penalties" not in st.session_state:
+        # penalties[eq] = [{numero, start, end, consumido}]
         st.session_state["penalties"] = {"A": [], "B": []}
     if "stats" not in st.session_state:
         st.session_state["stats"] = {"A": {}, "B": {}}
@@ -255,6 +226,7 @@ def render_cronometro_js():
         .chip { display:inline-block; padding:2px 6px; border-radius:6px; font-size:12px; margin-left:6px; }
         .chip-sai { background:#ffe5e5; color:#a30000; }
         .chip-ent { background:#e7ffe7; color:#005a00; }
+        /* linha de quadra */
         .chips-line { margin:6px 0 10px; display:flex; flex-wrap:wrap; gap:6px; }
         .chip-quadra { background:#e8ffe8; color:#0b5; border:1px solid #bfe6bf; }
         .chip-inelegivel { background:#f2f3f5; color:#888; border:1px solid #dcdfe3; opacity:.8; }
@@ -312,6 +284,27 @@ def zerar():
     st.session_state["ultimo_tick"] = time.time()
     st.toast("🔁 Zerado", icon="🔁")
 
+# >>> NOVO: botão único (toggle) iniciar/pausar
+def toggle_cronometro():
+    """Se estiver parado: inicia. Se estiver rodando: pausa."""
+    if st.session_state.get("iniciado", False):
+        pausar()
+    else:
+        iniciar()
+
+# ---------- Utilitários de tempo / stats ----------
+def _ensure_player_stats(eq: str, numero: int):
+    if "stats" not in st.session_state:
+        st.session_state["stats"] = {"A": {}, "B": {}}
+    return st.session_state["stats"][eq].setdefault(int(numero), {
+        "jogado_1t": 0.0, "jogado_2t": 0.0, "banco": 0.0, "doismin": 0.0
+    })
+
+def tempo_logico_atual() -> float:
+    if st.session_state["iniciado"]:
+        return st.session_state["cronometro"] + (time.time() - st.session_state["ultimo_tick"])
+    return st.session_state["cronometro"]
+
 def _parse_mmss(txt: str) -> int | None:
     try:
         mm, ss = txt.strip().split(":")
@@ -320,6 +313,8 @@ def _parse_mmss(txt: str) -> int | None:
         return m*60 + s
     except Exception:
         return None
+
+# (usa helpers já existentes do app: get_team_name, atualizar_estado, elenco, jogadores_por_estado)
 
 # ---------- Painel da equipe ----------
 def painel_equipe(eq: str):
@@ -420,22 +415,30 @@ with abas[2]:
     _init_clock_state()
     st.subheader("Controle do Jogo")
 
-    # Linha do relógio e período
-    cc1, cc2, cc3, cc4, cc5 = st.columns([1, 1, 1, 1, 1])
+    # >>> ALTERADO: Linha do relógio e período (botão único iniciar/pausar)
+    cc1, cc2, cc3 = st.columns([1, 1, 2])
+
     with cc1:
-        if st.button("▶️ Iniciar", key="clk_start"): iniciar()
+        rotulo = "⏸️ Pausar" if st.session_state["iniciado"] else "▶️ Iniciar"
+        if st.button(rotulo, key="clk_toggle"):
+            toggle_cronometro()
+
     with cc2:
-        if st.button("⏸️ Pausar", key="clk_pause"): pausar()
+        if st.button("🔁 Zerar", key="clk_reset"):
+            zerar()
+
     with cc3:
-        if st.button("🔁 Zerar", key="clk_reset"): zerar()
-    with cc4:
-        st.session_state["periodo"] = st.selectbox(
-            "Período", ["1º Tempo", "2º Tempo"],
-            index=0 if st.session_state["periodo"] == "1º Tempo" else 1,
-            key="sel_periodo"
-        )
-    with cc5:
-        st.session_state["invert_lados"] = st.toggle("Inverter lados (A ⇄ B)", value=st.session_state["invert_lados"])
+        c31, c32 = st.columns([1, 1])
+        with c31:
+            st.session_state["periodo"] = st.selectbox(
+                "Período", ["1º Tempo", "2º Tempo"],
+                index=0 if st.session_state["periodo"] == "1º Tempo" else 1,
+                key="sel_periodo"
+            )
+        with c32:
+            st.session_state["invert_lados"] = st.toggle(
+                "Inverter lados (A ⇄ B)", value=st.session_state["invert_lados"]
+            )
 
     # Cronômetro JS
     render_cronometro_js()
@@ -575,6 +578,7 @@ with abas[2]:
         atualizar_estado(equipe_sel, int(sai_num), "banco")
         atualizar_estado(equipe_sel, int(entra_num), "jogando")
 
+        # Mensagem detalhada (log local desta execução)
         mm_dt, ss_dt = int(dt // 60), int(dt % 60)
         st.info(
             f"Retroativo aplicado ({periodo_sel}) em {get_team_name(equipe_sel)}: "
@@ -582,12 +586,14 @@ with abas[2]:
             f"Entra {entra_num} (+ jogado, − banco) a partir de {tempo_str} até agora."
         )
 
+        # 💬 preparar mensagem "flash" (após rerun) com chips
         st.session_state["flash_text"] = f"Substituição retroativa realizada: Sai {sai_num} / Entra {entra_num}"
         st.session_state["flash_html"] = (
             f"<span class='chip chip-sai'>Sai {sai_num}</span>"
             f"<span class='chip chip-ent'>Entra {entra_num}</span>"
         )
 
+        # limpar seleções e forçar re-render
         for k in (
             f"sai_{equipe_sel}", f"entra_{equipe_sel}", f"doismin_sel_{equipe_sel}",
             f"comp_sel_{equipe_sel}", f"exp_sel_{equipe_sel}",
@@ -599,6 +605,7 @@ with abas[2]:
     if st.button("➕ Inserir substituição retroativa", use_container_width=True, key="retro_btn"):
         aplicar_retro()
 
+    # Mensagem “flash” da retroativa (aparece AQUI, abaixo do botão)
     if "flash_text" in st.session_state or "flash_html" in st.session_state:
         if "flash_text" in st.session_state:
             st.success(st.session_state["flash_text"], icon="🔁")
@@ -625,7 +632,7 @@ with abas[3]:
         now = time.time()
         dt = max(0.0, now - st.session_state["last_accum"])
         st.session_state["last_accum"] = now
-        jogado_key = _period_key()
+        jogado_key = "jogado_1t" if st.session_state["periodo"] == "1º Tempo" else "jogado_2t"
         for eq in ["A", "B"]:
             for j in st.session_state["equipes"].get(eq, []):
                 num = int(j["numero"])

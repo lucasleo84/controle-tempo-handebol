@@ -11,7 +11,7 @@ st.set_page_config(page_title="Controle de Tempo Handebol", page_icon="⏱", lay
 # =====================================================
 def _init_globals():
     if "equipes" not in st.session_state:
-        st.session_state["equipes"] = {"A": [], "B": []}  # {"numero","estado","elegivel","exclusoes"}
+        st.session_state["equipes"] = {"A": [], "B": []}
     if "cores" not in st.session_state:
         st.session_state["cores"] = {"A": "#00AEEF", "B": "#00D1C7"}
     if "nome_A" not in st.session_state:
@@ -19,7 +19,7 @@ def _init_globals():
     if "nome_B" not in st.session_state:
         st.session_state["nome_B"] = "Equipe B"
 
-    # cronômetro principal
+    # cronômetro
     if "iniciado" not in st.session_state:
         st.session_state["iniciado"] = False
     if "ultimo_tick" not in st.session_state:
@@ -82,39 +82,7 @@ def _parse_mmss(txt: str) -> int | None:
         return None
 
 # =====================================================
-# Consome ações vindas dos botões do placar (query param “act”)
-# =====================================================
-if "act" in st.query_params:
-    a = st.query_params["act"]
-
-    def iniciar():
-        if not st.session_state["iniciado"]:
-            st.session_state["iniciado"] = True
-            st.session_state["ultimo_tick"] = time.time()
-    def pausar():
-        if st.session_state["iniciado"]:
-            agora = time.time()
-            st.session_state["cronometro"] += agora - st.session_state["ultimo_tick"]
-            st.session_state["iniciado"] = False
-    def zerar():
-        st.session_state["iniciado"] = False
-        st.session_state["cronometro"] = 0.0
-        st.session_state["ultimo_tick"] = time.time()
-        st.session_state["period_start_elapsed"] = 0.0
-
-    if a == "toggle":
-        if st.session_state["iniciado"]:
-            pausar()
-        else:
-            iniciar()
-    elif a == "reset":
-        zerar()
-
-    del st.query_params["act"]
-    st.rerun()
-
-# =====================================================
-# ⏱️ CRONO / PENALIDADES (funções reutilizadas abaixo)
+# CRONÔMETRO / PENALIDADES – funções de estado
 # =====================================================
 def iniciar():
     if not st.session_state["iniciado"]:
@@ -157,9 +125,10 @@ def _penalidade_top(eq: str, agora_elapsed: float):
     return (int(p["numero"]), int(restante))
 
 # =====================================================
-# 🧢 PLACAR FIXO NO TOPO (com botões no overlay)
+# 🧢 CABEÇALHO FIXO (sticky, sem overlay externo)
+# – botões são do Streamlit (confiáveis)
 # =====================================================
-def render_top_scoreboard():
+def render_header_sticky():
     iniciado    = bool(st.session_state["iniciado"])
     base_elapsed= float(st.session_state["cronometro"])
     start_epoch = float(st.session_state["ultimo_tick"]) if iniciado else None
@@ -173,164 +142,125 @@ def render_top_scoreboard():
     nomeA = get_team_name("A")
     nomeB = get_team_name("B")
 
-    header_h = 156
-    lbl = "⏸ Pausar" if iniciado else "▶️ Iniciar"
+    st.markdown("""
+    <style>
+      .sticky-wrap { position: sticky; top: 0; z-index: 50; }
+      .score-card { background: linear-gradient(180deg,#0a0a0a 0%, #0e0e0e 100%);
+                    border-bottom: 2px solid #222; border-radius: 0 0 14px 14px;
+                    box-shadow: 0 8px 18px rgba(0,0,0,.35); padding: 10px 14px 12px; }
+      .score-grid { display:grid; grid-template-columns: 1fr auto 1fr; gap:16px; align-items:center; }
+      .team-box   { display:flex; flex-direction:column; gap:8px; }
+      .team-name  { color:#fff; font-weight:800; padding:8px 14px; border-radius:12px; font-size:16px;
+                    letter-spacing:.3px; box-shadow:0 2px 6px rgba(0,0,0,.35); }
+      .mini-box   { font-family:'Courier New', monospace; font-size:22px; font-weight:800; text-align:center;
+                    color:#FF5555; background:#111; padding:8px 12px; border-radius:10px;
+                    border:1px solid #333; box-shadow: inset 0 0 10px rgba(255,255,255,.04); min-height:40px; }
+      .clock      { font-family:'Courier New', monospace; font-size:72px; line-height:1; font-weight:900;
+                    color:#FFD700; background:#000; padding:12px 28px; border-radius:14px;
+                    letter-spacing:4px; text-align:center; min-width: 360px;
+                    border:1px solid #333; box-shadow:0 0 22px rgba(255,215,0,.35), inset 0 0 18px rgba(255,255,255,.06);
+                    text-shadow:0 0 10px rgba(255,215,0,.45); }
+      .ctrls      { display:flex; gap:10px; justify-content:center; margin-top:6px; }
+      .stButton>button.score-btn { background:#222; color:#fff; border:1px solid #444; border-radius:10px;
+                                   padding:6px 12px; font-weight:700; }
+      .stButton>button.score-btn:hover { background:#2d2d2d; }
+    </style>
+    """, unsafe_allow_html=True)
 
-    html = f"""
-    <div></div>
-    <script>
-      (function(){{
-        const P = window.parent && window.parent.document ? window.parent.document : document;
+    with st.container():
+        st.markdown('<div class="sticky-wrap">', unsafe_allow_html=True)
+        st.markdown('<div class="score-card">', unsafe_allow_html=True)
+        colL, colC, colR = st.columns([1, 1, 1])
 
-        let wrap = P.getElementById('__overlay_clock');
-        if (!wrap) {{
-          wrap = P.createElement('div');
-          wrap.id = '__overlay_clock';
-          P.body.appendChild(wrap);
-        }}
+        with colL:
+            st.markdown(f'<div class="team-box"><div class="team-name" style="background:{corA};">{nomeA}</div>'
+                        f'<div id="penA" class="mini-box">-</div></div>', unsafe_allow_html=True)
+        with colC:
+            # relógio
+            components.html(f"""
+              <div id="clock" class="clock">00:00</div>
+              <script>
+                (function(){{
+                  const clockEl = document.currentScript.previousElementSibling;
+                  const iniciado   = {str(iniciado).lower()};
+                  const baseElapsed= {base_elapsed};
+                  const startEpoch = {json.dumps(start_epoch)};
+                  function fmt(sec){{
+                    sec = Math.max(0, Math.floor(sec));
+                    const m = Math.floor(sec/60), s = sec % 60;
+                    return (m<10?'0':'')+m+':' + (s<10?'0':'')+s;
+                  }}
+                  function tick(){{
+                    let e = baseElapsed;
+                    if (iniciado && startEpoch) {{
+                      const now = Date.now()/1000;
+                      e = baseElapsed + (now - startEpoch);
+                    }}
+                    if (clockEl) clockEl.textContent = fmt(e);
+                    window.__raf_clock = requestAnimationFrame(tick);
+                  }}
+                  if (window.__raf_clock) cancelAnimationFrame(window.__raf_clock);
+                  window.__raf_clock = requestAnimationFrame(tick);
+                }})();
+              </script>
+            """, height=100)
 
-        let style = P.getElementById('__overlay_clock_css');
-        if (!style) {{
-          style = P.createElement('style');
-          style.id = '__overlay_clock_css';
-          style.textContent = `
-            #__overlay_clock {{ position: fixed; left: 0; right: 0; top: 0; z-index: 999999; }}
-            .ol-inner {{ margin: 0 auto; max-width: 1200px; padding: 8px 12px; }}
-            .ol-card  {{ background: linear-gradient(180deg,#0a0a0a 0%, #0e0e0e 100%);
-                        border-bottom: 2px solid #222; border-radius: 0 0 14px 14px;
-                        box-shadow: 0 8px 18px rgba(0,0,0,.35); padding: 10px 14px 16px; }}
-            .ol-grid  {{ display: grid; grid-template-columns: 350px auto 350px; align-items: center; gap: 16px; }}
-            .ol-side  {{ display:flex; flex-direction:column; gap:8px; }}
-            .ol-right {{ align-items:flex-end; }}
-            .ol-team  {{ color:#fff; font-weight:800; padding:8px 14px; border-radius:12px; font-size:16px;
-                        letter-spacing:.3px; box-shadow:0 2px 6px rgba(0,0,0,.35); }}
-            .ol-clock {{ font-family:'Courier New', monospace; font-size:72px; line-height:1; font-weight:900;
-                        color:#FFD700; background:#000; padding:12px 28px; border-radius:14px;
-                        letter-spacing:4px; text-align:center; min-width: 360px;
-                        border:1px solid #333; box-shadow:0 0 22px rgba(255,215,0,.35), inset 0 0 18px rgba(255,255,255,.06);
-                        text-shadow:0 0 10px rgba(255,215,0,.45); }}
-            .ol-mini  {{ font-family:'Courier New', monospace; font-size:26px; font-weight:800; text-align:center;
-                        width: 210px; color:#FF5555; background:#111; padding:8px 12px; border-radius:10px;
-                        border:1px solid #333; box-shadow: inset 0 0 10px rgba(255,255,255,.04);
-                        text-shadow:0 0 6px rgba(255,0,0,.6); }}
-            .ol-ctrls {{ display:flex; gap:12px; justify-content:center; margin-top:10px; }}
-            .ol-btn   {{ pointer-events:auto; cursor:pointer; border:none; border-radius:10px; padding:8px 14px;
-                        font-weight:700; background:#222; color:#fff; border:1px solid #444; }}
-            .ol-btn:hover {{ background:#2d2d2d; }}
-          `;
-          P.head.appendChild(style);
-        }}
+            # botões NATIVOS Streamlit
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("⏯ Iniciar / Pausar", key="btn_toggle", use_container_width=True,
+                             help="Alterna entre iniciar e pausar", type="secondary"):
+                    if st.session_state["iniciado"]:
+                        pausar()
+                    else:
+                        iniciar()
+                    st.rerun()
+            with c2:
+                if st.button("🔁 Zerar", key="btn_reset", use_container_width=True, type="secondary"):
+                    zerar()
+                    st.rerun()
 
-        wrap.innerHTML = `
-          <div class="ol-inner">
-            <div class="ol-card">
-              <div class="ol-grid">
-                <div class="ol-side">
-                  <div class="ol-team" style="background:{corA};">{nomeA}</div>
-                  <div id="__ol_penA" class="ol-mini">-</div>
-                </div>
-                <div class="ol-side" style="align-items:center;">
-                  <div id="__ol_clock" class="ol-clock">00:00</div>
-                  <div class="ol-ctrls" style="pointer-events:auto;">
-                    <button class="ol-btn" id="__btn_toggle">{lbl}</button>
-                    <button class="ol-btn" id="__btn_reset">🔁 Zerar</button>
-                  </div>
-                </div>
-                <div class="ol-side ol-right">
-                  <div class="ol-team" style="background:{corB};">{nomeB}</div>
-                  <div id="__ol_penB" class="ol-mini">-</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        `;
+        with colR:
+            st.markdown(f'<div class="team-box" style="align-items:end;"><div class="team-name" style="background:{corB};">{get_team_name("B")}</div>'
+                        f'<div id="penB" class="mini-box">-</div></div>', unsafe_allow_html=True)
 
-        const me = document.currentScript && document.currentScript.parentElement;
-        if (me) me.style.display = 'none';
+        # timers 2' (JS local, sem overlay)
+        components.html(f"""
+          <script>
+            (function(){{
+              const boxA = parent.document.querySelector('div#penA');
+              const boxB = parent.document.querySelector('div#penB');
+              let nA = {json.dumps(numA)}, rA = {int(restA)};
+              let nB = {json.dumps(numB)}, rB = {int(restB)};
+              const beep = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
+              function upd(el,secs,num){{
+                if(!el) return;
+                if(!secs || secs<=0 || !num){{ el.textContent='-'; return; }}
+                const m = String(Math.floor(secs/60)).padStart(2,'0');
+                const s = String(secs%60).padStart(2,'0');
+                el.textContent = '#' + String(num) + ' ' + m + ':' + s;
+              }}
+              function tickA(){{
+                if(!rA) return;
+                rA = Math.max(0, rA-1); upd(boxA,rA,nA); if(rA===0){{try{{beep.play();}}catch(e){{}}}}
+              }}
+              function tickB(){{
+                if(!rB) return;
+                rB = Math.max(0, rB-1); upd(boxB,rB,nB); if(rB===0){{try{{beep.play();}}catch(e){{}}}}
+              }}
+              upd(boxA,rA,nA); upd(boxB,rB,nB);
+              if(window.__intA) clearInterval(window.__intA);
+              if(window.__intB) clearInterval(window.__intB);
+              if(rA>0) window.__intA = setInterval(tickA,1000);
+              if(rB>0) window.__intB = setInterval(tickB,1000);
+            }})();
+          </script>
+        """, height=0)
 
-        // === Ações ===
-        function doAct(a){{
-          const u = new URL(P.location.href);
-          u.searchParams.set('act', a);
-          P.defaultView.location.href = u.toString();
-        }}
-        const btnT = P.getElementById('__btn_toggle');
-        const btnR = P.getElementById('__btn_reset');
-        if (btnT) btnT.onclick = () => doAct('toggle');
-        if (btnR) btnR.onclick = () => doAct('reset');
+        st.markdown('</div>', unsafe_allow_html=True)  # score-card
+        st.markdown('</div>', unsafe_allow_html=True)  # sticky-wrap
 
-        // === Relógio principal ===
-        const iniciado   = {str(iniciado).lower()};
-        const baseElapsed= {base_elapsed};
-        const startEpoch = {json.dumps(start_epoch)};
-        const clockEl = P.getElementById('__ol_clock');
-
-        function fmt(sec){{
-          sec = Math.max(0, Math.floor(sec));
-          const m = Math.floor(sec/60), s = sec % 60;
-          return (m<10?'0':'')+m+':' + (s<10?'0':'')+s;
-        }}
-        function tickClock(){{
-          let elapsed = baseElapsed;
-          if (iniciado && startEpoch){{
-            const now = Date.now()/1000;
-            elapsed = baseElapsed + (now - startEpoch);
-          }}
-          if (clockEl) clockEl.textContent = fmt(elapsed);
-          window.__ol_clockRAF = window.requestAnimationFrame(tickClock);
-        }}
-        if (window.__ol_clockRAF) cancelAnimationFrame(window.__ol_clockRAF);
-        window.__ol_clockRAF = requestAnimationFrame(tickClock);
-
-        // === Timers de 2' (# + MM:SS) ===
-        const penAEl = P.getElementById('__ol_penA');
-        const penBEl = P.getElementById('__ol_penB');
-        let rA = {int(restA)};
-        let rB = {int(restB)};
-        let nA = {json.dumps(numA)};
-        let nB = {json.dumps(numB)};
-        const beep = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
-
-        function updateBox(el, secs, num){{
-          if (!el) return;
-          if (!secs || secs<=0 || !num) {{ el.textContent = '-'; return; }}
-          const m = String(Math.floor(secs/60)).padStart(2,'0');
-          const s = String(secs%60).padStart(2,'0');
-          el.textContent = '#' + String(num) + ' ' + m + ':' + s;
-        }}
-        function tickPenA(){{
-          if (!rA) return;
-          rA = Math.max(0, rA-1);
-          updateBox(penAEl, rA, nA);
-          if (rA===0) {{ try{{beep.play();}}catch(e){{}} }}
-        }}
-        function tickPenB(){{
-          if (!rB) return;
-          rB = Math.max(0, rB-1);
-          updateBox(penBEl, rB, nB);
-          if (rB===0) {{ try{{beep.play();}}catch(e){{}} }}
-        }}
-        updateBox(penAEl, rA, nA);
-        updateBox(penBEl, rB, nB);
-        if (window.__ol_penA) clearInterval(window.__ol_penA);
-        if (window.__ol_penB) clearInterval(window.__ol_penB);
-        if (rA>0) window.__ol_penA = setInterval(tickPenA, 1000);
-        if (rB>0) window.__ol_penB = setInterval(tickPenB, 1000);
-
-        // padding superior
-        let pad = P.getElementById('__ol_top_pad');
-        if (!pad) {{
-          pad = P.createElement('style');
-          pad.id = '__ol_top_pad';
-          pad.textContent = `.main .block-container {{ padding-top: {header_h}px !important; }}`;
-          P.head.appendChild(pad);
-        }}
-      }})();
-    </script>
-    """
-    components.html(html, height=0)
-
-render_top_scoreboard()
+render_header_sticky()
 
 # =====================================================
 # 🧭 ABAS
@@ -358,7 +288,8 @@ with abas[0]:
     for eq, col in zip(["A", "B"], [colA, colB]):
         with col:
             st.markdown(f"### {get_team_name(eq)}")
-            st.text_input(f"Nome da equipe {eq}", key=f"nome_{eq}")  # sem value=
+            # nome SEM value= (evita sobrescrever)
+            st.text_input(f"Nome da equipe {eq}", key=f"nome_{eq}")
             qtd_default = len(st.session_state["equipes"][eq]) or 7
             qtd = st.number_input(f"Quantidade de jogadores ({eq})",
                                   min_value=1, max_value=20, step=1,
@@ -389,7 +320,7 @@ with abas[0]:
                 st.success(f"Equipe {eq} salva com {len(numeros)} jogadores.")
 
 # =====================================================
-# ABA 2 — TITULARES (opcional + correção retroativa 100%)
+# ABA 2 — TITULARES (opcional; corrige retroativamente 100%)
 # =====================================================
 with abas[1]:
     st.subheader("Definir Titulares (opcional; corrige retroativamente o período atual)")
@@ -410,7 +341,6 @@ with abas[1]:
         )
 
         if st.button(f"Aplicar titulares ({eq})", key=f"registrar_tit_{eq}"):
-            # tempo decorrido do período
             elapsed_period = max(0.0, tempo_logico_atual() - st.session_state["period_start_elapsed"])
             jog_key = "jogado_1t" if st.session_state["periodo"] == "1º Tempo" else "jogado_2t"
             sel = set(map(int, titulares_sel))
@@ -419,29 +349,26 @@ with abas[1]:
                 num = int(j["numero"])
                 s = _ensure_player_stats(eq, num)
 
-                # ignora quem está inelegível no momento
+                # ignora expulso/excluído
                 if j.get("estado") in ("excluido", "expulso"):
                     continue
 
                 if num in sel:
-                    # >>> NOVO: garante que TODO o tempo do período seja jogado
                     desired = elapsed_period
                     cur     = s[jog_key]
                     if desired > cur:
                         delta = desired - cur
                         s[jog_key] += delta
                         s["banco"] = max(0.0, s["banco"] - delta)
-                    # estado em quadra
                     j["estado"] = "jogando"; j["elegivel"] = True
                 else:
-                    # >>> NOVO: garante que não-titulares tenham 0 jogado no período
                     cur = s[jog_key]
                     if cur > 0:
                         s["banco"] += cur
                         s[jog_key] = 0.0
                     j["estado"] = "banco"; j["elegivel"] = True
 
-            st.success("Titulares aplicados. Correção retroativa foi 100% realizada.")
+            st.success("Titulares aplicados com correção retroativa do período.")
 
 # =====================================================
 # ABA 3 — CONTROLE DO JOGO

@@ -1,5 +1,7 @@
 # app.py
-import time, json
+import time
+import json
+import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 from string import Template
@@ -64,7 +66,7 @@ def atualizar_estado(eq: str, numero: int, novo_estado: str) -> bool:
             return True
     return False
 
-def jogadores_por_estado(eq: str, estado: str) -> list[int]:
+def jogadores_por_estado(eq: str, estado: str):
     """Lista números (int) dos jogadores da equipe em um determinado estado e elegíveis."""
     return [
         int(j["numero"])
@@ -72,7 +74,7 @@ def jogadores_por_estado(eq: str, estado: str) -> list[int]:
         if j.get("elegivel", True) and j.get("estado") == estado
     ]
 
-def elenco(eq: str) -> list[int]:
+def elenco(eq: str):
     """Lista números (int) de todos os jogadores elegíveis da equipe (independente do estado)."""
     return [
         int(j["numero"])
@@ -80,7 +82,7 @@ def elenco(eq: str) -> list[int]:
         if j.get("elegivel", True)
     ]
 
-def _ensure_player_stats(eq: str, numero: int) -> dict:
+def _ensure_player_stats(eq: str, numero: int):
     """Garante o dicionário de stats do jogador e o retorna (em segundos)."""
     return st.session_state["stats"][eq].setdefault(int(numero), {
         "jogado_1t": 0.0, "jogado_2t": 0.0, "banco": 0.0, "doismin": 0.0
@@ -108,12 +110,15 @@ def _parse_mmss(txt: str) -> int | None:
         return None
 
 # inicializa o estado global (idempotente)
-_init_globals()
-
+__initialized = st.session_state.get("__init_globals_done__", False)
+if not __initialized:
+    _init_globals()
+    st.session_state["__init_globals_done__"] = True
 
 # =====================================================
 # ⏱️ CRONÔMETRO / PENALIDADES (REGISTRO)
 # =====================================================
+
 def iniciar():
     if not st.session_state["iniciado"]:
         st.session_state["iniciado"] = True
@@ -137,7 +142,6 @@ def _registrar_exclusao(eq: str, numero: int, start_elapsed: float):
         "end": float(start_elapsed) + 120.0,  # 2'
         "consumido": False
     })
-    # marca estado EXCLUÍDO
     atualizar_estado(eq, numero, "excluido")
 
 def _penalidades_ativas(eq: str, agora_elapsed: float):
@@ -163,12 +167,13 @@ def _penalidade_top(eq: str, agora_elapsed: float):
 # =====================================================
 # 🧢 PLACAR GLOBAL (ACIMA DAS ABAS)
 # =====================================================
+
 def render_top_scoreboard():
     # CSS do placar (cabeçalho fixo)
     st.markdown("""
     <style>
       .top-sticky {
-        position: sticky; top: 0; z-index: 10000; /* bem acima de tudo */
+        position: sticky; top: 0; z-index: 10000;
         background: linear-gradient(180deg, #0a0a0a 0%, #0e0e0e 100%);
         padding: 12px 14px 10px; border-bottom: 2px solid #222;
         box-shadow: 0 6px 12px rgba(0,0,0,.35);
@@ -322,9 +327,14 @@ def render_top_scoreboard():
     with c2:
         if st.button("🔁 Zerar", key="top_reset"):
             zerar(); st.rerun()
+
+# Render do placar (acima das abas)
+render_top_scoreboard()
+
 # =====================================================
 # 🧭 ABAS
 # =====================================================
+
 abas = st.tabs([
     "Configuração da Equipe",
     "Definir Titulares",
@@ -352,14 +362,13 @@ with abas[0]:
     colA, colB = st.columns(2)
     for eq, col in zip(["A", "B"], [colA, colB]):
         with col:
-            # defaults seguros
             st.session_state.setdefault(f"nome_{eq}", f"Equipe {eq}")
             st.session_state.setdefault("equipes", {"A": [], "B": []})
             st.session_state.setdefault("cores", {"A": "#00AEEF", "B": "#EC008C"})
 
             st.markdown(f"### {st.session_state[f'nome_{eq}']}")
 
-            # ⚠️ NÃO atribua st.session_state[...] = st.text_input(...)
+            # sem atribuição ao session_state — o widget cuida disso
             st.text_input(
                 f"Nome da equipe {eq}",
                 value=st.session_state[f"nome_{eq}"],
@@ -385,7 +394,6 @@ with abas[0]:
                     )
                     st.session_state[f"numeros_{eq}"][i] = int(novo)
 
-            # cor da equipe
             st.session_state["cores"][eq] = st.color_picker(
                 f"Cor da equipe {eq}",
                 value=st.session_state["cores"][eq],
@@ -454,7 +462,10 @@ def painel_equipe(eq: str):
     # Cabeçalho do time + linha “quadra”
     cor = st.session_state["cores"].get(eq, "#333")
     nome = get_team_name(eq)
-    st.markdown(f"<div style='color:#fff;background:{cor};padding:6px 10px;border-radius:8px;font-weight:700;margin-bottom:6px;'>{nome}</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='color:#fff;background:{cor};padding:6px 10px;border-radius:8px;font-weight:700;margin-bottom:6px;'>{nome}</div>",
+        unsafe_allow_html=True
+    )
 
     jogadores = st.session_state["equipes"].get(eq, [])
     on_court = sorted([int(j["numero"]) for j in jogadores if j.get("estado") == "jogando" and j.get("elegivel", True)])
@@ -462,8 +473,10 @@ def painel_equipe(eq: str):
 
     # chips
     chip_html = []
-    for n in on_court: chip_html.append(f"<span style='display:inline-block;padding:2px 6px;border-radius:6px;font-size:12px;margin-right:6px;background:#e8ffe8;color:#0b5;border:1px solid #bfe6bf;'>#{n}</span>")
-    for n in excluidos: chip_html.append(f"<span style='display:inline-block;padding:2px 6px;border-radius:6px;font-size:12px;margin-right:6px;background:#f2f3f5;color:#888;border:1px solid #dcdfe3;opacity:.8;'>#{n}</span>")
+    for n in on_court:
+        chip_html.append("<span style='display:inline-block;padding:2px 6px;border-radius:6px;font-size:12px;margin-right:6px;background:#e8ffe8;color:#0b5;border:1px solid #bfe6bf;'>#{}</span>".format(n))
+    for n in excluidos:
+        chip_html.append("<span style='display:inline-block;padding:2px 6px;border-radius:6px;font-size:12px;margin-right:6px;background:#f2f3f5;color:#888;border:1px solid #dcdfe3;opacity:.8;'>#{}</span>".format(n))
     st.markdown(f"<div style='margin:6px 0 10px;'>{''.join(chip_html) if chip_html else '<span style=\"color:#666;\">Nenhum jogador em quadra.</span>'}</div>", unsafe_allow_html=True)
 
     # Substituição
@@ -553,11 +566,9 @@ with abas[2]:
         else:
             st.info(f"Cadastre a {get_team_name(lados[1])} na aba de Configuração.")
 
-    # Retroativas (aparecem no fim da aba 3, e a mensagem flash fica logo abaixo do botão)
+    # Retroativas (mensagem “chipada” logo abaixo do botão)
     st.divider()
     st.markdown("## 📝 Substituições avulsas (retroativas)")
-    if "stats" not in st.session_state:
-        st.session_state["stats"] = {"A": {}, "B": {}}
 
     col_eq, col_time = st.columns([1, 1])
     with col_eq:
@@ -609,6 +620,7 @@ with abas[2]:
             f"<span style='display:inline-block;padding:2px 6px;border-radius:6px;font-size:12px;margin-right:6px;background:#e7ffe7;color:#005a00;'>Entra {entra_num}</span>"
         )
 
+        # limpa seleções dessa equipe
         for k in (f"sai_{equipe_sel}", f"entra_{equipe_sel}", f"doismin_sel_{equipe_sel}", f"comp_sel_{equipe_sel}", f"exp_sel_{equipe_sel}"):
             st.session_state.pop(k, None)
 
@@ -630,8 +642,9 @@ with abas[2]:
 # ABA 4 — VISUALIZAÇÃO DE DADOS
 # =====================================================
 with abas[3]:
-    import pandas as pd
+    st.subheader("Visualização de Dados")
 
+    # Estados internos desta aba
     if "last_accum" not in st.session_state:
         st.session_state["last_accum"] = time.time()
     if "viz_auto" not in st.session_state:
@@ -659,16 +672,16 @@ with abas[3]:
     def _doismin_por_jogador_agora(eq: str, numero: int, agora_elapsed: float) -> float:
         total_sec = 0.0
         for p in st.session_state.get("penalties", {}).get(eq, []):
-            if int(p["numero"]) != int(numero): continue
+            if int(p["numero"]) != int(numero): 
+                continue
             a, b = float(p["start"]), float(p["end"])
-            cumprido = max(0.0, min(agora_elapsed, b) - a)
+            cumprido = max(0.0, min(tempo_logico_atual(), b) - a)
             total_sec += cumprido
         return total_sec / 60.0
 
     def _stats_to_dataframe():
         rows = []
         for eq in ["A", "B"]:
-            cor = st.session_state["cores"].get(eq, "#333")
             for j in st.session_state["equipes"].get(eq, []):
                 num = int(j["numero"])
                 est = j.get("estado", "banco")
@@ -678,8 +691,7 @@ with abas[3]:
                 j2 = s["jogado_2t"] / 60.0
                 jog_total = j1 + j2
                 banco_min = s["banco"] / 60.0
-                agora_elapsed = tempo_logico_atual()
-                dois_min = round(_doismin_por_jogador_agora(eq, num, agora_elapsed), 1)
+                dois_min = round(_doismin_por_jogador_agora(eq, num, tempo_logico_atual()), 1)
                 rows.append({
                     "Equipe": get_team_name(eq),
                     "Número": num,
@@ -693,15 +705,8 @@ with abas[3]:
                 })
         return pd.DataFrame(rows).sort_values(["Equipe", "Número"]) if rows else pd.DataFrame()
 
-    st.subheader("Visualização de Dados")
-    cauto1, cauto2 = st.columns([1, 1])
-    with cauto1:
-        st.session_state["viz_auto"] = st.toggle("Atualizar automaticamente", value=st.session_state["viz_auto"])
-    with cauto2:
-        st.session_state["viz_interval"] = st.number_input("Intervalo (s)", min_value=0.5, max_value=5.0, step=0.5,
-                                                           value=float(st.session_state["viz_interval"]))
-
-    _accumulate_time_tick()  # um tick por render desta aba
+    # um tick por render desta aba
+    _accumulate_time_tick()
 
     df = _stats_to_dataframe()
     if df.empty:
@@ -712,5 +717,9 @@ with abas[3]:
         st.download_button("📥 Baixar CSV", data=csv, file_name="relatorio_tempos.csv", mime="text/csv")
 
     if st.session_state["viz_auto"]:
+        st.session_state["viz_interval"] = st.number_input("Intervalo (s)", min_value=0.5, max_value=5.0, step=0.5,
+                                                           value=float(st.session_state["viz_interval"]))
         time.sleep(float(st.session_state["viz_interval"]))
         st.rerun()
+    else:
+        st.toggle("Atualizar automaticamente", key="viz_auto")

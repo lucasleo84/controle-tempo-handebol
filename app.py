@@ -4,39 +4,44 @@ import streamlit as st
 import streamlit.components.v1 as components
 from string import Template
 
-# =====================================================
-# 🔧 Inicialização de estado global
-# =====================================================
-if "equipes" not in st.session_state:
-    st.session_state["equipes"] = {"A": [], "B": []}
-if "cores" not in st.session_state:
-    st.session_state["cores"] = {"A": "#00AEEF", "B": "#EC008C"}
-if "titulares_definidos" not in st.session_state:
-    st.session_state["titulares_definidos"] = {"A": False, "B": False}
-if "nome_A" not in st.session_state:
-    st.session_state["nome_A"] = "Equipe A"
-if "nome_B" not in st.session_state:
-    st.session_state["nome_B"] = "Equipe B"
+st.set_page_config(page_title="Controle de Tempo Handebol", page_icon="⏱", layout="wide")
 
 # =====================================================
-# 🧭 Abas
+# 🔧 ESTADO GLOBAL / HELPERS BÁSICOS
 # =====================================================
-abas = st.tabs([
-    "Configuração da Equipe",
-    "Definir Titulares",
-    "Controle do Jogo",
-    "Visualização de Dados"
-])
+def _init_globals():
+    if "equipes" not in st.session_state:
+        st.session_state["equipes"] = {"A": [], "B": []}
+    if "cores" not in st.session_state:
+        st.session_state["cores"] = {"A": "#00AEEF", "B": "#EC008C"}
+    if "nome_A" not in st.session_state:
+        st.session_state["nome_A"] = "Equipe A"
+    if "nome_B" not in st.session_state:
+        st.session_state["nome_B"] = "Equipe B"
+    if "titulares_definidos" not in st.session_state:
+        st.session_state["titulares_definidos"] = {"A": False, "B": False}
+    if "iniciado" not in st.session_state:
+        st.session_state["iniciado"] = False
+    if "ultimo_tick" not in st.session_state:
+        st.session_state["ultimo_tick"] = time.time()
+    if "cronometro" not in st.session_state:
+        st.session_state["cronometro"] = 0.0
+    if "periodo" not in st.session_state:
+        st.session_state["periodo"] = "1º Tempo"
+    if "invert_lados" not in st.session_state:
+        st.session_state["invert_lados"] = False
+    if "penalties" not in st.session_state:
+        # lista por equipe: [{numero, start, end, consumido}]
+        st.session_state["penalties"] = {"A": [], "B": []}
+    if "stats" not in st.session_state:
+        st.session_state["stats"] = {"A": {}, "B": {}}
 
-# =====================================================
-# Helpers básicos compartilhados
-# =====================================================
+_init_globals()
+
 def get_team_name(eq: str) -> str:
-    """Nome configurado da equipe (A/B), com fallback."""
     return st.session_state.get(f"nome_{eq}") or f"Equipe {eq}"
 
 def atualizar_estado(eq: str, numero: int, novo_estado: str) -> bool:
-    """Muda o estado do jogador (jogando|banco|excluido|expulso)."""
     for j in st.session_state["equipes"][eq]:
         if int(j["numero"]) == int(numero):
             j["estado"] = novo_estado
@@ -44,7 +49,6 @@ def atualizar_estado(eq: str, numero: int, novo_estado: str) -> bool:
     return False
 
 def jogadores_por_estado(eq: str, estado: str):
-    """Lista de jogadores elegíveis (não-expulsos) no estado informado."""
     return [
         int(j["numero"])
         for j in st.session_state["equipes"][eq]
@@ -52,242 +56,13 @@ def jogadores_por_estado(eq: str, estado: str):
     ]
 
 def elenco(eq: str):
-    """Todos os jogadores elegíveis (não-expulsos)."""
     return [
         int(j["numero"])
         for j in st.session_state["equipes"][eq]
         if j.get("elegivel", True)
     ]
 
-
-# =====================================================
-# ABA 1 — CONFIGURAÇÃO DA EQUIPE
-# =====================================================
-with abas[0]:
-    st.subheader("Configuração da Equipe")
-
-    def ensure_num_list(team_key: str, qtd: int):
-        """Garante uma lista editável de números por equipe de tamanho 'qtd'."""
-        list_key = f"numeros_{team_key}"
-        if list_key not in st.session_state:
-            st.session_state[list_key] = [i + 1 for i in range(qtd)]
-        else:
-            nums = st.session_state[list_key]
-            if len(nums) < qtd:
-                nums.extend(list(range(len(nums) + 1, qtd + 1)))
-            elif len(nums) > qtd:
-                st.session_state[list_key] = nums[:qtd]
-
-    colA, colB = st.columns(2)
-    for eq, col in zip(["A", "B"], [colA, colB]):
-        with col:
-            st.markdown(f"### {get_team_name(eq)}")
-
-            nome = st.text_input(f"Nome da equipe {eq}", key=f"nome_{eq}")
-            qtd = st.number_input(
-                f"Quantidade de jogadores ({eq})",
-                min_value=1, max_value=20, step=1,
-                value=len(st.session_state["equipes"][eq]) or 7,
-                key=f"qtd_{eq}"
-            )
-
-            ensure_num_list(eq, int(qtd))
-
-            st.markdown("**Números das camisetas:**")
-            cols = st.columns(5)
-            for i, num in enumerate(st.session_state[f"numeros_{eq}"]):
-                with cols[i % 5]:
-                    novo = st.number_input(
-                        f"Jogador {i+1}",
-                        min_value=0, max_value=999, step=1,
-                        value=int(num),
-                        key=f"{eq}_num_{i}"
-                    )
-                    st.session_state[f"numeros_{eq}"][i] = int(novo)
-
-            cor = st.color_picker(
-                f"Cor da equipe {eq}",
-                value=st.session_state["cores"][eq],
-                key=f"cor_{eq}"
-            )
-            st.session_state["cores"][eq] = cor
-
-            if st.button(f"Salvar equipe {eq}", key=f"save_team_{eq}"):
-                numeros = list(dict.fromkeys(st.session_state[f"numeros_{eq}"]))  # sem duplicatas
-                st.session_state["equipes"][eq] = [
-                    {"numero": int(n), "estado": "banco", "elegivel": True, "exclusoes": 0}
-                    for n in numeros
-                ]
-                st.success(f"Equipe {eq} salva com {len(numeros)} jogadores.")
-                st.session_state["titulares_definidos"][eq] = False
-
-
-# =====================================================
-# ABA 2 — DEFINIR TITULARES
-# =====================================================
-with abas[1]:
-    st.subheader("Definir Titulares")
-
-    for eq in ["A", "B"]:
-        st.markdown(f"### {get_team_name(eq)}")
-
-        jogadores = st.session_state["equipes"][eq]
-        if not jogadores:
-            st.info(f"Cadastre primeiro a {get_team_name(eq)} na aba anterior.")
-            continue
-
-        numeros = [j["numero"] for j in jogadores]
-
-        disabled = bool(st.session_state["titulares_definidos"][eq])
-        if disabled:
-            st.success("Titulares já registrados. Clique em **Corrigir** para editar.")
-
-        tit_key = f"titulares_sel_{eq}"
-        titulares_sel = st.multiselect(
-            "Selecione titulares (adicione um a um)",
-            options=numeros,
-            default=[j["numero"] for j in jogadores if j.get("estado") == "jogando"],
-            key=tit_key,
-            disabled=disabled
-        )
-
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button(f"Registrar titulares ({eq})", key=f"registrar_tit_{eq}", disabled=disabled):
-                if not titulares_sel:
-                    st.error("Selecione pelo menos 1 titular.")
-                else:
-                    sel = set(map(int, titulares_sel))
-                    for j in st.session_state["equipes"][eq]:
-                        j["estado"] = "jogando" if j["numero"] in sel else "banco"
-                        j["elegivel"] = True
-                    st.session_state["titulares_definidos"][eq] = True
-                    st.success(f"Titulares de {get_team_name(eq)} registrados.")
-        with c2:
-            if st.button(f"Corrigir ({eq})", key=f"corrigir_tit_{eq}"):
-                st.session_state["titulares_definidos"][eq] = False
-                st.info("Edição de titulares liberada.")
-
-
-# =====================================================
-# ABA 3 — CONTROLE DO JOGO (entradas, saídas e penalidades)
-# =====================================================
-import time, json
-import streamlit.components.v1 as components
-from string import Template  # ok repetir o import; não dá erro
-
-# ---------- Estado mínimo do relógio e dados ----------
-def _init_clock_state():
-    if "iniciado" not in st.session_state: st.session_state["iniciado"] = False
-    if "ultimo_tick" not in st.session_state: st.session_state["ultimo_tick"] = time.time()
-    if "cronometro" not in st.session_state: st.session_state["cronometro"] = 0.0
-    if "periodo" not in st.session_state: st.session_state["periodo"] = "1º Tempo"
-    if "invert_lados" not in st.session_state: st.session_state["invert_lados"] = False
-    if "penalties" not in st.session_state:
-        # penalties[eq] = [{numero, start, end, consumido}]
-        st.session_state["penalties"] = {"A": [], "B": []}
-    if "stats" not in st.session_state:
-        st.session_state["stats"] = {"A": {}, "B": {}}
-
-# ---------- Penalidades: helpers ----------
-def _equipe_penalidades(eq: str):
-    return st.session_state["penalties"].get(eq, [])
-
-def _registrar_exclusao(eq: str, numero: int, start_elapsed: float):
-    st.session_state["penalties"][eq].append({
-        "numero": int(numero),
-        "start": float(start_elapsed),
-        "end": float(start_elapsed) + 120.0,  # 2 minutos = 120s
-        "consumido": False
-    })
-
-def _penalidades_ativas(eq: str, agora_elapsed: float):
-    return [p for p in _equipe_penalidades(eq) if (agora_elapsed < p["end"]) and not p["consumido"]]
-
-def _penalidades_concluidas_nao_consumidas(eq: str, agora_elapsed: float):
-    return [p for p in _equipe_penalidades(eq) if (agora_elapsed >= p["end"]) and not p["consumido"]]
-
-# ---------- Cronômetro principal (JS fixo) ----------
-def render_cronometro_js():
-    iniciado = "true" if st.session_state["iniciado"] else "false"
-    base_elapsed = float(st.session_state["cronometro"])
-    start_epoch = float(st.session_state["ultimo_tick"]) if st.session_state["iniciado"] else None
-
-    st.markdown("""
-        <style>
-        .cronofixo { position: sticky; top: 0; z-index: 999; text-align:center; padding:6px 0; background:#fff;
-                     border-bottom:1px solid #e5e7eb; margin-bottom:10px; }
-        .digital { font-family:'Courier New', monospace; font-size:28px; font-weight:700;
-                   color:#FFD700; background:#000; padding:6px 16px; border-radius:8px;
-                   letter-spacing:2px; box-shadow:0 0 8px rgba(255,215,0,.4); display:inline-block; }
-        .team-head { color:#fff; padding:6px 10px; border-radius:8px; font-size:14px; font-weight:700; margin-bottom:6px; }
-        .sec-title { font-size:14px; font-weight:700; margin:6px 0 4px; }
-        .compact .stSelectbox label, .compact .stButton button, .compact .stRadio label { font-size:13px!important; }
-        .chip { display:inline-block; padding:2px 6px; border-radius:6px; font-size:12px; margin-left:6px; }
-        .chip-sai { background:#ffe5e5; color:#a30000; }
-        .chip-ent { background:#e7ffe7; color:#005a00; }
-        /* linha de quadra */
-        .chips-line { margin:6px 0 10px; display:flex; flex-wrap:wrap; gap:6px; }
-        .chip-quadra { background:#e8ffe8; color:#0b5; border:1px solid #bfe6bf; }
-        .chip-inelegivel { background:#f2f3f5; color:#888; border:1px solid #dcdfe3; opacity:.8; }
-        </style>
-    """, unsafe_allow_html=True)
-
-    html = f"""
-    <div class="cronofixo">
-      <div id="cronovisual" class="digital">⏱ 00:00</div>
-    </div>
-    <script>
-      (function(){{
-        const el = document.getElementById('cronovisual');
-        const iniciado = {iniciado};
-        const baseElapsed = {json.dumps(base_elapsed)};
-        const startEpoch = {json.dumps(start_epoch)};
-        function fmt(sec){{
-          sec = Math.max(0, Math.floor(sec));
-          const m = Math.floor(sec/60), s = sec % 60;
-          return (m<10?'0':'')+m+':' + (s<10?'0':'')+s;
-        }}
-        function tick(){{
-          let elapsed = baseElapsed;
-          if (iniciado && startEpoch){{
-            const now = Date.now()/1000;
-            elapsed = baseElapsed + (now - startEpoch);
-          }}
-          el.textContent = '⏱ ' + fmt(elapsed);
-        }}
-        tick();
-        if (window.__cronovisual_timer) clearInterval(window.__cronovisual_timer);
-        window.__cronovisual_timer = setInterval(tick, 250);
-      }})();
-    </script>
-    """
-    components.html(html, height=62)
-
-# ---------- Botões do relógio ----------
-def iniciar():
-    if not st.session_state["iniciado"]:
-        st.session_state["iniciado"] = True
-        st.session_state["ultimo_tick"] = time.time()
-        st.toast("⏱️ Iniciado", icon="▶️")
-
-def pausar():
-    if st.session_state["iniciado"]:
-        agora = time.time()
-        st.session_state["cronometro"] += agora - st.session_state["ultimo_tick"]
-        st.session_state["iniciado"] = False
-        st.toast("⏸️ Pausado", icon="⏸️")
-
-def zerar():
-    st.session_state["iniciado"] = False
-    st.session_state["cronometro"] = 0.0
-    st.session_state["ultimo_tick"] = time.time()
-    st.toast("🔁 Zerado", icon="🔁")
-
-# ---------- Utilitários de tempo / stats ----------
 def _ensure_player_stats(eq: str, numero: int):
-    if "stats" not in st.session_state:
-        st.session_state["stats"] = {"A": {}, "B": {}}
     return st.session_state["stats"][eq].setdefault(int(numero), {
         "jogado_1t": 0.0, "jogado_2t": 0.0, "banco": 0.0, "doismin": 0.0
     })
@@ -306,128 +81,390 @@ def _parse_mmss(txt: str) -> int | None:
     except Exception:
         return None
 
-# (usa helpers já existentes do app: get_team_name, atualizar_estado, elenco, jogadores_por_estado)
+# =====================================================
+# ⏱️ CRONÔMETRO / PENALIDADES (REGISTRO)
+# =====================================================
+def iniciar():
+    if not st.session_state["iniciado"]:
+        st.session_state["iniciado"] = True
+        st.session_state["ultimo_tick"] = time.time()
 
-# ---------- Painel da equipe ----------
+def pausar():
+    if st.session_state["iniciado"]:
+        agora = time.time()
+        st.session_state["cronometro"] += agora - st.session_state["ultimo_tick"]
+        st.session_state["iniciado"] = False
+
+def zerar():
+    st.session_state["iniciado"] = False
+    st.session_state["cronometro"] = 0.0
+    st.session_state["ultimo_tick"] = time.time()
+
+def _registrar_exclusao(eq: str, numero: int, start_elapsed: float):
+    st.session_state["penalties"][eq].append({
+        "numero": int(numero),
+        "start": float(start_elapsed),
+        "end": float(start_elapsed) + 120.0,  # 2'
+        "consumido": False
+    })
+    # marca estado EXCLUÍDO
+    atualizar_estado(eq, numero, "excluido")
+
+def _penalidades_ativas(eq: str, agora_elapsed: float):
+    return [
+        p for p in st.session_state["penalties"].get(eq, [])
+        if (agora_elapsed < p["end"]) and not p["consumido"]
+    ]
+
+def _penalidades_concluidas_nao_consumidas(eq: str, agora_elapsed: float):
+    return [
+        p for p in st.session_state["penalties"].get(eq, [])
+        if (agora_elapsed >= p["end"]) and not p["consumido"]
+    ]
+
+def _penalidade_top(eq: str, agora_elapsed: float):
+    ativas = _penalidades_ativas(eq, agora_elapsed)
+    if not ativas:
+        return (None, 0)
+    p = min(ativas, key=lambda x: x["end"])
+    restante = max(0, int(round(p["end"] - agora_elapsed)))
+    return (int(p["numero"]), int(restante))
+
+# =====================================================
+# 🧢 PLACAR GLOBAL (ACIMA DAS ABAS)
+# =====================================================
+def render_top_scoreboard():
+    # CSS
+    st.markdown("""
+    <style>
+      .top-sticky { position: sticky; top: 0; z-index: 1000;
+        background: #0b0b0b; padding: 10px 12px 8px; border-bottom: 2px solid #222; }
+      .placar-grid { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; }
+      .side-box { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+      .side-box.right { align-items: flex-end; }
+      .team-tag { color: #fff; font-weight: 700; padding: 4px 8px; border-radius: 8px; font-size: 14px; }
+      .main-clock {
+        font-family: 'Courier New', monospace; font-size: 56px; line-height: 1; font-weight: 800;
+        color: #FFD700; background: #000; padding: 8px 18px; border-radius: 10px;
+        letter-spacing: 3px; box-shadow: 0 0 14px rgba(255,215,0,.35), inset 0 0 10px rgba(255,255,255,.05);
+        border: 1px solid #333; text-align:center; min-width: 260px;
+      }
+      .mini2 {
+        font-family: 'Courier New', monospace; font-size: 22px; font-weight: 700;
+        color: #FF5555; background:#111; padding: 4px 10px; border-radius: 8px;
+        text-shadow: 0 0 6px rgba(255,0,0,.6); border: 1px solid #333; min-width: 110px; text-align:center;
+      }
+      .mini2.muted { color: #888; text-shadow: none; }
+      .controls-row { margin-top: 6px; display:flex; gap:8px; justify-content:center; }
+      .stButton > button { border-radius: 8px; padding: 4px 12px; border: 1px solid #333; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    iniciado_js = "true" if st.session_state["iniciado"] else "false"
+    base_elapsed = float(st.session_state["cronometro"])
+    start_epoch = float(st.session_state["ultimo_tick"]) if st.session_state["iniciado"] else None
+
+    agora = tempo_logico_atual()
+    numA, restA = _penalidade_top("A", agora)
+    numB, restB = _penalidade_top("B", agora)
+
+    corA = st.session_state["cores"].get("A", "#00AEEF")
+    corB = st.session_state["cores"].get("B", "#EC008C")
+    nomeA = get_team_name("A")
+    nomeB = get_team_name("B")
+
+    html_tpl = Template("""
+    <div class="top-sticky">
+      <div class="placar-grid">
+        <div class="side-box">
+          <div class="team-tag" style="background: $corA;">$nomeA</div>
+          <div id="penA" class="mini2 $muteA">$penA_text</div>
+        </div>
+        <div id="mainclock" class="main-clock">00:00</div>
+        <div class="side-box right">
+          <div class="team-tag" style="background: $corB;">$nomeB</div>
+          <div id="penB" class="mini2 $muteB">$penB_text</div>
+        </div>
+      </div>
+    </div>
+    <script>
+    (function(){
+      // clock principal
+      const el = document.getElementById('mainclock');
+      const iniciado = $iniciado;
+      const baseElapsed = $baseElapsed;
+      const startEpoch = $startEpoch;
+      function fmt(sec){
+        sec = Math.max(0, Math.floor(sec));
+        const m = Math.floor(sec/60), s = sec % 60;
+        return (m<10?'0':'')+m+':' + (s<10?'0':'')+s;
+      }
+      function tickMain(){
+        let elapsed = baseElapsed;
+        if (iniciado && startEpoch){
+          const now = Date.now()/1000;
+          elapsed = baseElapsed + (now - startEpoch);
+        }
+        el.textContent = fmt(elapsed);
+      }
+      tickMain();
+      if (window.__top_mainclock) clearInterval(window.__top_mainclock);
+      window.__top_mainclock = setInterval(tickMain, 250);
+
+      // 2' A
+      let rA = $restA;
+      const penA = document.getElementById('penA');
+      const beep = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
+      function tickA(){
+        if (!penA) return;
+        if (rA <= 0) return;
+        rA = Math.max(0, rA - 1);
+        const m = String(Math.floor(rA/60)).padStart(2,'0');
+        const s = String(rA%60).padStart(2,'0');
+        penA.textContent = m + ':' + s;
+        if (rA === 0){ try{ beep.play(); }catch(e){} }
+      }
+      if (window.__top_penA) clearInterval(window.__top_penA);
+      if (rA > 0) window.__top_penA = setInterval(tickA, 1000);
+
+      // 2' B
+      let rB = $restB;
+      const penB = document.getElementById('penB');
+      function tickB(){
+        if (!penB) return;
+        if (rB <= 0) return;
+        rB = Math.max(0, rB - 1);
+        const m = String(Math.floor(rB/60)).padStart(2,'0');
+        const s = String(rB%60).padStart(2,'0');
+        penB.textContent = m + ':' + s;
+        if (rB === 0){ try{ beep.play(); }catch(e){} }
+      }
+      if (window.__top_penB) clearInterval(window.__top_penB);
+      if (rB > 0) window.__top_penB = setInterval(tickB, 1000);
+    })();
+    </script>
+    """)
+    penA_text = f"#{numA} – {restA//60:02d}:{restA%60:02d}" if numA is not None else "—"
+    penB_text = f"#{numB} – {restB//60:02d}:{restB%60:02d}" if numB is not None else "—"
+    muteA = "" if numA is not None else "muted"
+    muteB = "" if numB is not None else "muted"
+    html = html_tpl.substitute(
+        corA=corA, nomeA=nomeA, penA_text=penA_text, muteA=muteA,
+        corB=corB, nomeB=nomeB, penB_text=penB_text, muteB=muteB,
+        iniciado=iniciado_js,
+        baseElapsed=json.dumps(base_elapsed),
+        startEpoch=json.dumps(start_epoch),
+        restA=int(restA), restB=int(restB)
+    )
+    components.html(html, height=120)
+
+    # Botões (toggle Play/Pause + Zerar)
+    c1, c2 = st.columns([1,1])
+    with c1:
+        if st.session_state["iniciado"]:
+            if st.button("⏸️ Pausar", key="top_pause"):
+                pausar(); st.rerun()
+        else:
+            if st.button("▶️ Iniciar", key="top_play"):
+                iniciar(); st.rerun()
+    with c2:
+        if st.button("🔁 Zerar", key="top_reset"):
+            zerar(); st.rerun()
+
+# Render do placar (acima das abas)
+render_top_scoreboard()
+
+# =====================================================
+# 🧭 ABAS
+# =====================================================
+abas = st.tabs([
+    "Configuração da Equipe",
+    "Definir Titulares",
+    "Controle do Jogo",
+    "Visualização de Dados",
+])
+
+# =====================================================
+# ABA 1 — CONFIGURAÇÃO
+# =====================================================
+with abas[0]:
+    st.subheader("Configuração da Equipe")
+
+    def ensure_num_list(team_key: str, qtd: int):
+        list_key = f"numeros_{team_key}"
+        if list_key not in st.session_state:
+            st.session_state[list_key] = [i + 1 for i in range(qtd)]
+        else:
+            nums = st.session_state[list_key]
+            if len(nums) < qtd:
+                nums.extend(list(range(len(nums) + 1, qtd + 1)))
+            elif len(nums) > qtd:
+                st.session_state[list_key] = nums[:qtd]
+
+    colA, colB = st.columns(2)
+    for eq, col in zip(["A", "B"], [colA, colB]):
+        with col:
+            st.markdown(f"### {get_team_name(eq)}")
+            st.session_state[f"nome_{eq}"] = st.text_input(f"Nome da equipe {eq}", value=st.session_state[f"nome_{eq}"], key=f"nome_{eq}")
+            qtd = st.number_input(f"Quantidade de jogadores ({eq})", min_value=1, max_value=20, step=1,
+                                  value=len(st.session_state["equipes"][eq]) or 7, key=f"qtd_{eq}")
+            ensure_num_list(eq, int(qtd))
+
+            st.markdown("**Números das camisetas:**")
+            cols = st.columns(5)
+            for i, num in enumerate(st.session_state[f"numeros_{eq}"]):
+                with cols[i % 5]:
+                    novo = st.number_input(f"Jogador {i+1}", min_value=0, max_value=999, step=1, value=int(num), key=f"{eq}_num_{i}")
+                    st.session_state[f"numeros_{eq}"][i] = int(novo)
+
+            st.session_state["cores"][eq] = st.color_picker(f"Cor da equipe {eq}", value=st.session_state["cores"][eq], key=f"cor_{eq}")
+
+            if st.button(f"Salvar equipe {eq}", key=f"save_team_{eq}"):
+                numeros = list(dict.fromkeys(st.session_state[f"numeros_{eq}"]))
+                st.session_state["equipes"][eq] = [
+                    {"numero": int(n), "estado": "banco", "elegivel": True, "exclusoes": 0}
+                    for n in numeros
+                ]
+                # limpar seleções de UI e zerar dados da equipe
+                for k in (f"sai_{eq}", f"entra_{eq}", f"doismin_sel_{eq}", f"comp_sel_{eq}", f"exp_sel_{eq}"):
+                    st.session_state.pop(k, None)
+                st.session_state["penalties"][eq] = []
+                st.session_state["stats"][eq] = {}
+                st.session_state["titulares_definidos"][eq] = False
+                st.success(f"Equipe {eq} salva com {len(numeros)} jogadores.")
+                st.rerun()
+
+# =====================================================
+# ABA 2 — TITULARES
+# =====================================================
+with abas[1]:
+    st.subheader("Definir Titulares")
+    for eq in ["A", "B"]:
+        st.markdown(f"### {get_team_name(eq)}")
+        jogadores = st.session_state["equipes"][eq]
+        if not jogadores:
+            st.info(f"Cadastre primeiro a {get_team_name(eq)} na aba anterior.")
+            continue
+        numeros = [j["numero"] for j in jogadores]
+        disabled = bool(st.session_state["titulares_definidos"][eq])
+        if disabled:
+            st.success("Titulares já registrados. Clique em **Corrigir** para editar.")
+        tit_key = f"titulares_sel_{eq}"
+        titulares_sel = st.multiselect(
+            "Selecione titulares (adicione um a um)",
+            options=numeros,
+            default=[j["numero"] for j in jogadores if j.get("estado") == "jogando"],
+            key=tit_key,
+            disabled=disabled
+        )
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button(f"Registrar titulares ({eq})", key=f"registrar_tit_{eq}", disabled=disabled):
+                if not titulares_sel:
+                    st.error("Selecione pelo menos 1 titular.")
+                else:
+                    sel = set(map(int, titulares_sel))
+                    for j in st.session_state["equipes"][eq]:
+                        j["estado"] = "jogando" if j["numero"] in sel else "banco"
+                        j["elegivel"] = True
+                    st.session_state["titulares_definidos"][eq] = True
+                    st.success(f"Titulares de {get_team_name(eq)} registrados.")
+        with c2:
+            if st.button(f"Corrigir ({eq})", key=f"corrigir_tit_{eq}"):
+                st.session_state["titulares_definidos"][eq] = False
+                st.info("Edição de titulares liberada.")
+
+# =====================================================
+# ABA 3 — CONTROLE DO JOGO (somente controles)
+# =====================================================
 def painel_equipe(eq: str):
+    # Cabeçalho do time + linha “quadra”
     cor = st.session_state["cores"].get(eq, "#333")
     nome = get_team_name(eq)
-    st.markdown(f"<div class='team-head' style='background:{cor};'>{nome}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='color:#fff;background:{cor};padding:6px 10px;border-radius:8px;font-weight:700;margin-bottom:6px;'>{nome}</div>", unsafe_allow_html=True)
 
-    # Linha com quem está em quadra (jogando) e quem está nos 2' (cinza)
     jogadores = st.session_state["equipes"].get(eq, [])
     on_court = sorted([int(j["numero"]) for j in jogadores if j.get("estado") == "jogando" and j.get("elegivel", True)])
     excluidos = sorted([int(j["numero"]) for j in jogadores if j.get("estado") == "excluido" and j.get("elegivel", True)])
 
-    chips = []
-    for num in on_court:
-        chips.append(f"<span class='chip chip-quadra' title='Jogando'>#{num}</span>")
-    for num in excluidos:
-        chips.append(f"<span class='chip chip-inelegivel' title='Cumprindo 2 minutos'>#{num}</span>")
+    # chips
+    chip_html = []
+    for n in on_court: chip_html.append(f"<span style='display:inline-block;padding:2px 6px;border-radius:6px;font-size:12px;margin-right:6px;background:#e8ffe8;color:#0b5;border:1px solid #bfe6bf;'>#{n}</span>")
+    for n in excluidos: chip_html.append(f"<span style='display:inline-block;padding:2px 6px;border-radius:6px;font-size:12px;margin-right:6px;background:#f2f3f5;color:#888;border:1px solid #dcdfe3;opacity:.8;'>#{n}</span>")
+    st.markdown(f"<div style='margin:6px 0 10px;'>{''.join(chip_html) if chip_html else '<span style=\"color:#666;\">Nenhum jogador em quadra.</span>'}</div>", unsafe_allow_html=True)
 
-    if chips:
-        st.markdown(f"<div class='chips-line'>{''.join(chips)}</div>", unsafe_allow_html=True)
-    else:
-        st.caption("Nenhum jogador em quadra no momento.")
+    # Substituição
+    st.markdown("**🔁 Substituição**")
+    cols_sub = st.columns([1, 1, 1])
+    list_sai = jogadores_por_estado(eq, "jogando")
+    list_entra = jogadores_por_estado(eq, "banco")
+    sai = cols_sub[0].selectbox("Sai", list_sai, key=f"sai_{eq}")
+    entra = cols_sub[1].selectbox("Entra", list_entra, key=f"entra_{eq}")
+    if cols_sub[2].button("Confirmar", key=f"btn_sub_{eq}", disabled=(not list_sai or not list_entra)):
+        if (sai in list_sai) and (entra in list_entra):
+            atualizar_estado(eq, sai, "banco")
+            atualizar_estado(eq, entra, "jogando")
+            st.success(f"Substituição: Sai {sai} / Entra {entra}", icon="🔁")
+            st.markdown(
+                f"<span style='display:inline-block;padding:2px 6px;border-radius:6px;font-size:12px;margin-right:6px;background:#ffe5e5;color:#a30000;'>Sai {sai}</span>"
+                f"<span style='display:inline-block;padding:2px 6px;border-radius:6px;font-size:12px;margin-right:6px;background:#e7ffe7;color:#005a00;'>Entra {entra}</span>",
+                unsafe_allow_html=True
+            )
+        else:
+            st.error("Seleção inválida para substituição.")
+    st.markdown("---")
 
-    with st.container():
-        st.markdown("<div class='compact'>", unsafe_allow_html=True)
+    # 2 minutos (registrar penalidade) — timers aparecem só no cabeçalho
+    st.markdown("**⛔ 2 minutos**")
+    jogadores_all = elenco(eq)
+    jog_2m = st.selectbox("Jogador", jogadores_all, key=f"doismin_sel_{eq}")
+    if st.button("Aplicar 2'", key=f"btn_2min_{eq}", disabled=(len(jogadores_all) == 0)):
+        start = tempo_logico_atual()
+        _registrar_exclusao(eq, jog_2m, start_elapsed=start)
+        st.warning(f"Jogador {jog_2m} excluído por 2 minutos. (Timer no topo)")
 
-        # --- Substituição ---
-        st.markdown("<div class='sec-title'>🔁 Substituição</div>", unsafe_allow_html=True)
-        cols_sub = st.columns([1, 1, 1])
-        list_sai = jogadores_por_estado(eq, "jogando")
-        list_entra = jogadores_por_estado(eq, "banco")
-        sai = cols_sub[0].selectbox("Sai", list_sai, key=f"sai_{eq}")
-        entra = cols_sub[1].selectbox("Entra", list_entra, key=f"entra_{eq}")
-        if cols_sub[2].button("Confirmar", key=f"btn_sub_{eq}", disabled=(not list_sai or not list_entra)):
-            if (sai in list_sai) and (entra in list_entra):
-                atualizar_estado(eq, sai, "banco")
-                atualizar_estado(eq, entra, "jogando")
-                st.success(f"Substituição: Sai {sai} / Entra {entra}", icon="🔁")
-                st.markdown(
-                    f"<span class='chip chip-sai'>Sai {sai}</span><span class='chip chip-ent'>Entra {entra}</span>",
-                    unsafe_allow_html=True
-                )
-            else:
-                st.error("Seleção inválida para substituição.")
-        st.markdown("---")
+    # Completou (retorno após 2')
+    st.markdown("---")
+    st.markdown("**✅ Completou**")
+    agora = tempo_logico_atual()
+    concluidas = _penalidades_concluidas_nao_consumidas(eq, agora)
+    elegiveis_retorno = jogadores_por_estado(eq, "banco") + jogadores_por_estado(eq, "excluido")
+    comp = st.selectbox("Jogador que entra", elegiveis_retorno, key=f"comp_sel_{eq}")
+    if st.button("Confirmar retorno", key=f"btn_comp_{eq}", disabled=(len(elegiveis_retorno) == 0)):
+        if not concluidas:
+            st.error("Ainda não há exclusões concluídas (2' completos). Aguarde.")
+        else:
+            concluidas.sort(key=lambda p: p["end"])
+            concluidas[0]["consumido"] = True
+            atualizar_estado(eq, comp, "jogando")
+            st.success(f"Jogador {comp} entrou após 2'.")
 
-        # --- 2 minutos & Completou ---
-        cols_pen = st.columns([1, 1])
+    # Expulsão
+    st.markdown("---")
+    st.markdown("**🟥 Expulsão**")
+    exp = st.selectbox("Jogador", jogadores_all, key=f"exp_sel_{eq}")
+    if st.button("Confirmar expulsão", key=f"btn_exp_{eq}", disabled=(len(jogadores_all) == 0)):
+        ok = False
+        for j in st.session_state["equipes"][eq]:
+            if int(j["numero"]) == int(exp):
+                j["estado"] = "expulso"
+                j["elegivel"] = False
+                ok = True
+                break
+        if ok:
+            st.error(f"Jogador {exp} expulso.")
+        else:
+            st.error("Não foi possível expulsar o jogador selecionado.")
 
-        with cols_pen[0]:
-            st.markdown("<div class='sec-title'>⛔ 2 minutos</div>", unsafe_allow_html=True)
-            jogadores_all = elenco(eq)
-            jog_2m = st.selectbox("Jogador", jogadores_all, key=f"doismin_sel_{eq}")
-            if st.button("Aplicar 2'", key=f"btn_2min_{eq}", disabled=(len(jogadores_all) == 0)):
-                atualizar_estado(eq, jog_2m, "excluido")
-                start = tempo_logico_atual()
-                _registrar_exclusao(eq, jog_2m, start_elapsed=start)
-                st.warning(f"Jogador {jog_2m} excluído por 2 minutos.")
-
-        with cols_pen[1]:
-            st.markdown("<div class='sec-title'>✅ Completou</div>", unsafe_allow_html=True)
-            agora = tempo_logico_atual()
-            concluidas = _penalidades_concluidas_nao_consumidas(eq, agora)
-            elegiveis_retorno = jogadores_por_estado(eq, "banco") + jogadores_por_estado(eq, "excluido")
-            comp = st.selectbox("Jogador que entra", elegiveis_retorno, key=f"comp_sel_{eq}")
-            if st.button("Confirmar retorno", key=f"btn_comp_{eq}", disabled=(len(elegiveis_retorno) == 0)):
-                if not concluidas:
-                    st.error("Ainda não há exclusões concluídas (2' completos). Aguarde.")
-                else:
-                    concluidas.sort(key=lambda p: p["end"])
-                    concluidas[0]["consumido"] = True
-                    atualizar_estado(eq, comp, "jogando")
-                    st.success(f"Jogador {comp} entrou após 2'.")
-
-        st.markdown("---")
-
-        # --- Expulsão ---
-        st.markdown("<div class='sec-title'>🟥 Expulsão</div>", unsafe_allow_html=True)
-        jogadores_all = elenco(eq)
-        exp = st.selectbox("Jogador", jogadores_all, key=f"exp_sel_{eq}")
-        if st.button("Confirmar expulsão", key=f"btn_exp_{eq}", disabled=(len(jogadores_all) == 0)):
-            ok = False
-            for j in st.session_state["equipes"][eq]:
-                if int(j["numero"]) == int(exp):
-                    j["estado"] = "expulso"
-                    j["elegivel"] = False
-                    ok = True
-                    break
-            if ok:
-                st.error(f"Jogador {exp} expulso.")
-            else:
-                st.error("Não foi possível expulsar o jogador selecionado.")
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-# ---------- Render da ABA 3 ----------
 with abas[2]:
-    _init_clock_state()
     st.subheader("Controle do Jogo")
+    st.session_state["periodo"] = st.selectbox(
+        "Período", ["1º Tempo", "2º Tempo"],
+        index=0 if st.session_state["periodo"] == "1º Tempo" else 1,
+        key="sel_periodo"
+    )
+    st.session_state["invert_lados"] = st.toggle("Inverter lados (A ⇄ B)", value=st.session_state["invert_lados"])
 
-    # Linha do relógio e período
-    cc1, cc2, cc3, cc4, cc5 = st.columns([1, 1, 1, 1, 1])
-    with cc1:
-        if st.button("▶️ Iniciar", key="clk_start"): iniciar()
-    with cc2:
-        if st.button("⏸️ Pausar", key="clk_pause"): pausar()
-    with cc3:
-        if st.button("🔁 Zerar", key="clk_reset"): zerar()
-    with cc4:
-        st.session_state["periodo"] = st.selectbox(
-            "Período", ["1º Tempo", "2º Tempo"],
-            index=0 if st.session_state["periodo"] == "1º Tempo" else 1,
-            key="sel_periodo"
-        )
-    with cc5:
-        st.session_state["invert_lados"] = st.toggle("Inverter lados (A ⇄ B)", value=st.session_state["invert_lados"])
-
-    # Cronômetro JS
-    render_cronometro_js()
-
-    # Painéis lado a lado — respeitando “Inverter lados”
     lados = ("A", "B") if not st.session_state["invert_lados"] else ("B", "A")
     col_esq, col_dir = st.columns(2)
     with col_esq:
@@ -443,82 +480,17 @@ with abas[2]:
         else:
             st.info(f"Cadastre a {get_team_name(lados[1])} na aba de Configuração.")
 
-    # -------------------- Penalidades ativas (persistentes) --------------------
-    st.markdown("### Penalidades ativas")
-    agora = tempo_logico_atual()
-
-    def _render_pen_timers(eq: str):
-        ativas = _penalidades_ativas(eq, agora)
-        if not ativas:
-            st.caption(f"{get_team_name(eq)}: nenhuma penalidade ativa.")
-            return
-        st.markdown(f"**{get_team_name(eq)}**")
-        for p in ativas:
-            restante = max(0, int(round(p["end"] - agora)))
-            minutos = restante // 60
-            segundos = restante % 60
-            elem_id = f"pen_{eq}_{p['numero']}_{int(p['start'])}"  # id único
-
-            html_tpl = Template("""
-            <div style="margin:6px 0;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <div style="font-size:13px;">#$numero — resta:</div>
-                <div id="$elem_id" style="font-family:'Courier New';font-size:18px;color:#FF3333;background:#111;padding:3px 10px;border-radius:6px;display:inline-block;text-shadow:0 0 6px red;">$mm:$ss</div>
-              </div>
-            </div>
-            <script>
-              (function(){
-                let r = $restante;
-                const el = document.getElementById("$elem_id");
-                const beep = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
-                function tick(){
-                  r = Math.max(0, r-1);
-                  const m = String(Math.floor(r/60)).padStart(2,'0');
-                  const s = String(r%60).padStart(2,'0');
-                  if (el) el.textContent = m + ":" + s;
-                  if (r <= 0) { try { beep.play(); } catch(e) {} clearInterval(window["timer_$elem_id"]); }
-                }
-                if (window["timer_$elem_id"]) clearInterval(window["timer_$elem_id"]);
-                window["timer_$elem_id"] = setInterval(tick, 1000);
-              })();
-            </script>
-            """)
-            html = html_tpl.substitute(
-                numero=int(p["numero"]),
-                elem_id=elem_id,
-                mm=f"{minutos:02d}",
-                ss=f"{segundos:02d}",
-                restante=int(restante),
-            )
-            components.html(html, height=48)
-
-    colA_t, colB_t = st.columns(2)
-    with colA_t: _render_pen_timers(lados[0])
-    with colB_t: _render_pen_timers(lados[1])
-
-    # -----------------------------------------------------
-    # Substituições avulsas (retroativas) — sempre aplica ao estado atual
-    # -----------------------------------------------------
+    # Retroativas (aparecem no fim da aba 3, e a mensagem flash fica logo abaixo do botão)
     st.divider()
     st.markdown("## 📝 Substituições avulsas (retroativas)")
-
-    # Garantia de stats
     if "stats" not in st.session_state:
         st.session_state["stats"] = {"A": {}, "B": {}}
 
     col_eq, col_time = st.columns([1, 1])
     with col_eq:
-        equipe_sel = st.radio(
-            "Equipe", ["A", "B"],
-            horizontal=True, key="retro_eq",
-            format_func=lambda x: get_team_name(x),
-        )
+        equipe_sel = st.radio("Equipe", ["A", "B"], horizontal=True, key="retro_eq", format_func=lambda x: get_team_name(x))
     with col_time:
-        periodo_sel = st.selectbox(
-            "Período da jogada",
-            ["1º Tempo", "2º Tempo"],
-            key="retro_periodo",
-        )
+        periodo_sel = st.selectbox("Período da jogada", ["1º Tempo", "2º Tempo"], key="retro_periodo")
 
     all_nums = elenco(equipe_sel)
     c1, c2, c3 = st.columns([1, 1, 1])
@@ -528,12 +500,7 @@ with abas[2]:
         entra_opcoes = [n for n in all_nums if n != sai_num]
         entra_num = st.selectbox("Entra", entra_opcoes, key="retro_entra")
     with c3:
-        tempo_str = st.text_input(
-            "Tempo do jogo (MM:SS)",
-            value="00:00",
-            key="retro_tempo",
-            help="Ex.: 12:34 = ocorreu aos 12min34s.",
-        )
+        tempo_str = st.text_input("Tempo do jogo (MM:SS)", value="00:00", key="retro_tempo", help="Ex.: 12:34 = ocorreu aos 12min34s.")
 
     def aplicar_retro():
         t_mark = _parse_mmss(tempo_str)
@@ -562,26 +529,14 @@ with abas[2]:
         atualizar_estado(equipe_sel, int(sai_num), "banco")
         atualizar_estado(equipe_sel, int(entra_num), "jogando")
 
-        # Mensagem detalhada (log local desta execução)
-        mm_dt, ss_dt = int(dt // 60), int(dt % 60)
-        st.info(
-            f"Retroativo aplicado ({periodo_sel}) em {get_team_name(equipe_sel)}: "
-            f"Sai {sai_num} (−{mm_dt:02d}:{ss_dt:02d} jogado, + banco) | "
-            f"Entra {entra_num} (+ jogado, − banco) a partir de {tempo_str} até agora."
-        )
-
-        # 💬 preparar mensagem "flash" (após rerun) com chips
+        # flash message + chips (após rerun)
         st.session_state["flash_text"] = f"Substituição retroativa realizada: Sai {sai_num} / Entra {entra_num}"
         st.session_state["flash_html"] = (
-            f"<span class='chip chip-sai'>Sai {sai_num}</span>"
-            f"<span class='chip chip-ent'>Entra {entra_num}</span>"
+            f"<span style='display:inline-block;padding:2px 6px;border-radius:6px;font-size:12px;margin-right:6px;background:#ffe5e5;color:#a30000;'>Sai {sai_num}</span>"
+            f"<span style='display:inline-block;padding:2px 6px;border-radius:6px;font-size:12px;margin-right:6px;background:#e7ffe7;color:#005a00;'>Entra {entra_num}</span>"
         )
 
-        # limpar seleções e forçar re-render
-        for k in (
-            f"sai_{equipe_sel}", f"entra_{equipe_sel}", f"doismin_sel_{equipe_sel}",
-            f"comp_sel_{equipe_sel}", f"exp_sel_{equipe_sel}",
-        ):
+        for k in (f"sai_{equipe_sel}", f"entra_{equipe_sel}", f"doismin_sel_{equipe_sel}", f"comp_sel_{equipe_sel}", f"exp_sel_{equipe_sel}"):
             st.session_state.pop(k, None)
 
         st.rerun()
@@ -589,7 +544,7 @@ with abas[2]:
     if st.button("➕ Inserir substituição retroativa", use_container_width=True, key="retro_btn"):
         aplicar_retro()
 
-    # Mensagem “flash” da retroativa (aparece AQUI, abaixo do botão)
+    # Mensagem flash aqui (logo abaixo do botão)
     if "flash_text" in st.session_state or "flash_html" in st.session_state:
         if "flash_text" in st.session_state:
             st.success(st.session_state["flash_text"], icon="🔁")
@@ -598,9 +553,8 @@ with abas[2]:
         st.session_state.pop("flash_text", None)
         st.session_state.pop("flash_html", None)
 
-
 # =====================================================
-# ABA 4 — VISUALIZAÇÃO DE DADOS (auto opcional)
+# ABA 4 — VISUALIZAÇÃO DE DADOS
 # =====================================================
 with abas[3]:
     import pandas as pd
@@ -654,7 +608,7 @@ with abas[3]:
                 agora_elapsed = tempo_logico_atual()
                 dois_min = round(_doismin_por_jogador_agora(eq, num, agora_elapsed), 1)
                 rows.append({
-                    "Equipe": eq,
+                    "Equipe": get_team_name(eq),
                     "Número": num,
                     "Estado": est,
                     "Exclusões": exc,
@@ -663,48 +617,26 @@ with abas[3]:
                     "Jogado Total (min)": round(jog_total, 1),
                     "Banco (min)": round(banco_min, 1),
                     "2 min (min)": round(dois_min, 1),
-                    "CorEquipe": cor,
                 })
         return pd.DataFrame(rows).sort_values(["Equipe", "Número"]) if rows else pd.DataFrame()
 
     st.subheader("Visualização de Dados")
-
     cauto1, cauto2 = st.columns([1, 1])
     with cauto1:
-        st.session_state["viz_auto"] = st.toggle(
-            "Atualizar automaticamente (1s)",
-            value=st.session_state["viz_auto"],
-            help="Recalcula os tempos a cada segundo apenas nesta aba."
-        )
+        st.session_state["viz_auto"] = st.toggle("Atualizar automaticamente", value=st.session_state["viz_auto"])
     with cauto2:
-        st.session_state["viz_interval"] = st.number_input(
-            "Intervalo (s)", min_value=0.5, max_value=5.0, step=0.5,
-            value=float(st.session_state["viz_interval"]),
-            help="Intervalo da atualização automática desta aba."
-        )
+        st.session_state["viz_interval"] = st.number_input("Intervalo (s)", min_value=0.5, max_value=5.0, step=0.5,
+                                                           value=float(st.session_state["viz_interval"]))
 
-    _accumulate_time_tick()
+    _accumulate_time_tick()  # um tick por render desta aba
 
     df = _stats_to_dataframe()
     if df.empty:
-        st.info("Sem dados ainda. Cadastre equipes, defina titulares e inicie o controle do jogo.")
+        st.info("Sem dados ainda. Cadastre equipes, defina titulares e use os controles do jogo.")
     else:
-        for eq in ["A", "B"]:
-            sub = df[df["Equipe"] == eq].copy()
-            if sub.empty: continue
-            cor = sub["CorEquipe"].iloc[0]
-            st.markdown(
-                f"<div style='background:{cor};color:#fff;padding:6px 10px;border-radius:8px;font-weight:700;margin-top:8px;'>{get_team_name(eq)}</div>",
-                unsafe_allow_html=True
-            )
-            st.dataframe(sub.drop(columns=["CorEquipe"]), use_container_width=True)
-
-        st.markdown("---")
-        st.markdown("#### Relatório combinado")
-        st.dataframe(df.drop(columns=["CorEquipe"]), use_container_width=True)
-
-        csv = df.drop(columns=["CorEquipe"]).to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Baixar CSV (todas as equipes)", data=csv, file_name="relatorio_tempos.csv", mime="text/csv")
+        st.dataframe(df, use_container_width=True)
+        csv = df.to_csv(index=False).encode("utf-8")
+        st.download_button("📥 Baixar CSV", data=csv, file_name="relatorio_tempos.csv", mime="text/csv")
 
     if st.session_state["viz_auto"]:
         time.sleep(float(st.session_state["viz_interval"]))

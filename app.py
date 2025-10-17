@@ -184,17 +184,17 @@ with abas[1]:
                         j["estado"] = "jogando" if j["numero"] in sel else "banco"
                         j["elegivel"] = True
 
-                    # 💡 CORREÇÃO AUTOMÁTICA: se o relógio já andou,
-                    # transfere todo o tempo decorrido do período atual
-                    # de "banco" → "jogado" para cada titular agora definido.
+                    # ✅ novo: credita apenas uma vez por jogador/por período
                     elapsed = tempo_logico_atual()  # segundos até aqui
                     if elapsed > 0:
                         jog_key = _period_key()
+                        flag_key = "cred_1t" if jog_key == "jogado_1t" else "cred_2t"
                         for num in sel:
                             s = _ensure_player_stats(eq, num)
-                            s[jog_key]  += elapsed
-                            s["banco"]   = max(0.0, s["banco"] - elapsed)
-
+                            if not s.get(flag_key, False):
+                                s[jog_key] += elapsed
+                                s["banco"] = max(0.0, s["banco"] - elapsed)
+                                s[flag_key] = True                  
                     st.session_state["titulares_definidos"][eq] = True
                     st.success(f"Titulares de {get_team_name(eq)} registrados.")
         with c2:

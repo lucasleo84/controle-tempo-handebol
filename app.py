@@ -290,9 +290,9 @@ def _parse_mmss(txt: str) -> int | None:
     except Exception:
         return None
 
-# ---------- Botões do relógio (unificado e com rerender imediato) ----------
+# ---------- Botões do relógio (sem st.rerun dentro da função) ----------
 def toggle_relogio():
-    """Inicia ou pausa o relógio e força a atualização imediata do placar."""
+    """Inicia ou pausa o relógio."""
     if not st.session_state.get("iniciado", False):
         st.session_state["iniciado"] = True
         st.session_state["ultimo_tick"] = time.time()
@@ -303,14 +303,12 @@ def toggle_relogio():
         st.session_state["iniciado"] = False
         st.session_state["ultimo_tick"] = agora
         st.toast("⏸️ Pausado", icon="⏸️")
-    st.rerun()  # <- atualização imediata do placar
 
 def zerar_relogio():
     st.session_state["iniciado"] = False
     st.session_state["cronometro"] = 0.0
     st.session_state["ultimo_tick"] = time.time()
     st.toast("🔁 Zerado", icon="🔁")
-    st.rerun()  # <- mostra 00:00 já
 
 # ---------- Painel da equipe ----------
 def painel_equipe(eq: str):
@@ -415,9 +413,13 @@ with abas[2]:
     cc1, cc2, cc3 = st.columns([1, 1, 2])
     with cc1:
         label = "▶️ Iniciar" if not st.session_state.get("iniciado", False) else "⏸️ Pausar"
-        st.button(label, key="clk_toggle", on_click=toggle_relogio, use_container_width=True)
+        if st.button(label, key="clk_toggle", use_container_width=True):
+            toggle_relogio()
+            st.rerun()  # <- agora fora do callback
     with cc2:
-        st.button("🔁 Zerar", key="clk_reset", on_click=zerar_relogio, use_container_width=True)
+        if st.button("🔁 Zerar", key="clk_reset", use_container_width=True):
+            zerar_relogio()
+            st.rerun()  # <- fora do callback
     with cc3:
         c31, c32 = st.columns([1, 1])
         with c31:
@@ -562,7 +564,7 @@ with abas[2]:
         s_out[jog_key]  = max(0.0, s_out[jog_key] - dt)
         s_out["banco"] += dt
         s_in["banco"]   = max(0.0, s_in["banco"] - dt)
-        s_in[jog_key]  += dt
+        s_in[jogado_key]  += dt
 
         atualizar_estado(equipe_sel, int(sai_num), "banco")
         atualizar_estado(equipe_sel, int(entra_num), "jogando")
@@ -603,7 +605,7 @@ with abas[2]:
 # =====================================================
 # ABA 4 — VISUALIZAÇÃO DE DADOS (auto opcional)
 # =====================================================
-with abas[3]:
+with abas[3]]:
     import pandas as pd
 
     if "last_accum" not in st.session_state:

@@ -322,20 +322,45 @@ with abas[0]:
     colA, colB = st.columns(2)
     for eq, col in zip(["A", "B"], [colA, colB]):
         with col:
-            st.markdown(f"### {get_team_name(eq)}")
-            st.session_state[f"nome_{eq}"] = st.text_input(f"Nome da equipe {eq}", value=st.session_state[f"nome_{eq}"], key=f"nome_{eq}")
-            qtd = st.number_input(f"Quantidade de jogadores ({eq})", min_value=1, max_value=20, step=1,
-                                  value=len(st.session_state["equipes"][eq]) or 7, key=f"qtd_{eq}")
+            # defaults seguros
+            st.session_state.setdefault(f"nome_{eq}", f"Equipe {eq}")
+            st.session_state.setdefault("equipes", {"A": [], "B": []})
+            st.session_state.setdefault("cores", {"A": "#00AEEF", "B": "#EC008C"})
+
+            st.markdown(f"### {st.session_state[f'nome_{eq}']}")
+
+            # ⚠️ NÃO atribua st.session_state[...] = st.text_input(...)
+            st.text_input(
+                f"Nome da equipe {eq}",
+                value=st.session_state[f"nome_{eq}"],
+                key=f"nome_{eq}"
+            )
+
+            qtd_default = len(st.session_state["equipes"][eq]) or 7
+            qtd = st.number_input(
+                f"Quantidade de jogadores ({eq})",
+                min_value=1, max_value=20, step=1,
+                value=qtd_default, key=f"qtd_{eq}"
+            )
             ensure_num_list(eq, int(qtd))
 
             st.markdown("**Números das camisetas:**")
             cols = st.columns(5)
             for i, num in enumerate(st.session_state[f"numeros_{eq}"]):
                 with cols[i % 5]:
-                    novo = st.number_input(f"Jogador {i+1}", min_value=0, max_value=999, step=1, value=int(num), key=f"{eq}_num_{i}")
+                    novo = st.number_input(
+                        f"Jogador {i+1}",
+                        min_value=0, max_value=999, step=1,
+                        value=int(num), key=f"{eq}_num_{i}"
+                    )
                     st.session_state[f"numeros_{eq}"][i] = int(novo)
 
-            st.session_state["cores"][eq] = st.color_picker(f"Cor da equipe {eq}", value=st.session_state["cores"][eq], key=f"cor_{eq}")
+            # cor da equipe
+            st.session_state["cores"][eq] = st.color_picker(
+                f"Cor da equipe {eq}",
+                value=st.session_state["cores"][eq],
+                key=f"cor_{eq}"
+            )
 
             if st.button(f"Salvar equipe {eq}", key=f"save_team_{eq}"):
                 numeros = list(dict.fromkeys(st.session_state[f"numeros_{eq}"]))
@@ -343,7 +368,7 @@ with abas[0]:
                     {"numero": int(n), "estado": "banco", "elegivel": True, "exclusoes": 0}
                     for n in numeros
                 ]
-                # limpar seleções de UI e zerar dados da equipe
+                # limpa seleções/estados relacionados
                 for k in (f"sai_{eq}", f"entra_{eq}", f"doismin_sel_{eq}", f"comp_sel_{eq}", f"exp_sel_{eq}"):
                     st.session_state.pop(k, None)
                 st.session_state["penalties"][eq] = []

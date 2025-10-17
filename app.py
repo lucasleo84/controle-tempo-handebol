@@ -29,12 +29,14 @@ abas = st.tabs([
 ])
 
 # =====================================================
-# Helpers básicos
+# Helpers básicos compartilhados
 # =====================================================
 def get_team_name(eq: str) -> str:
+    """Nome configurado da equipe (A/B), com fallback."""
     return st.session_state.get(f"nome_{eq}") or f"Equipe {eq}"
 
 def atualizar_estado(eq: str, numero: int, novo_estado: str) -> bool:
+    """Muda o estado do jogador (jogando|banco|excluido|expulso)."""
     for j in st.session_state["equipes"][eq]:
         if int(j["numero"]) == int(numero):
             j["estado"] = novo_estado
@@ -42,6 +44,7 @@ def atualizar_estado(eq: str, numero: int, novo_estado: str) -> bool:
     return False
 
 def jogadores_por_estado(eq: str, estado: str):
+    """Lista de jogadores elegíveis (não-expulsos) no estado informado."""
     return [
         int(j["numero"])
         for j in st.session_state["equipes"][eq]
@@ -49,6 +52,7 @@ def jogadores_por_estado(eq: str, estado: str):
     ]
 
 def elenco(eq: str):
+    """Todos os jogadores elegíveis (não-expulsos)."""
     return [
         int(j["numero"])
         for j in st.session_state["equipes"][eq]
@@ -63,6 +67,7 @@ with abas[0]:
     st.subheader("Configuração da Equipe")
 
     def ensure_num_list(team_key: str, qtd: int):
+        """Garante uma lista editável de números por equipe de tamanho 'qtd'."""
         list_key = f"numeros_{team_key}"
         if list_key not in st.session_state:
             st.session_state[list_key] = [i + 1 for i in range(qtd)]
@@ -78,7 +83,7 @@ with abas[0]:
         with col:
             st.markdown(f"### {get_team_name(eq)}")
 
-            _ = st.text_input(f"Nome da equipe {eq}", key=f"nome_{eq}")
+            nome = st.text_input(f"Nome da equipe {eq}", key=f"nome_{eq}")
             qtd = st.number_input(
                 f"Quantidade de jogadores ({eq})",
                 min_value=1, max_value=20, step=1,
@@ -108,7 +113,7 @@ with abas[0]:
             st.session_state["cores"][eq] = cor
 
             if st.button(f"Salvar equipe {eq}", key=f"save_team_{eq}"):
-                numeros = list(dict.fromkeys(st.session_state[f"numeros_{eq}"]))
+                numeros = list(dict.fromkeys(st.session_state[f"numeros_{eq}"]))  # sem duplicatas
                 st.session_state["equipes"][eq] = [
                     {"numero": int(n), "estado": "banco", "elegivel": True, "exclusoes": 0}
                     for n in numeros
@@ -156,6 +161,12 @@ with abas[1]:
                     for j in st.session_state["equipes"][eq]:
                         j["estado"] = "jogando" if j["numero"] in sel else "banco"
                         j["elegivel"] = True
+                        # zera “banco” do titular até agora (fix incremental titulação)
+                        if j["estado"] == "jogando":
+                            s = st.session_state.setdefault("stats", {"A":{}, "B":{}})[eq].setdefault(
+                                int(j["numero"]), {"jogado_1t":0.0,"jogado_2t":0.0,"banco":0.0,"doismin":0.0}
+                            )
+                            s["banco"] = 0.0
                     st.session_state["titulares_definidos"][eq] = True
                     st.success(f"Titulares de {get_team_name(eq)} registrados.")
         with c2:
@@ -165,11 +176,12 @@ with abas[1]:
 
 
 # =====================================================
-# ABA 3 — CONTROLE DO JOGO
+# ABA 3 — CONTROLE DO JOGO (entradas, saídas e penalidades)
 # =====================================================
-import time, json
 import streamlit.components.v1 as components
+from string import Template  # ok repetir o import; não dá erro
 
+# ---------- Estado mínimo do relógio e dados ----------
 def _init_clock_state():
     if "iniciado" not in st.session_state: st.session_state["iniciado"] = False
     if "ultimo_tick" not in st.session_state: st.session_state["ultimo_tick"] = time.time()
@@ -177,10 +189,12 @@ def _init_clock_state():
     if "periodo" not in st.session_state: st.session_state["periodo"] = "1º Tempo"
     if "invert_lados" not in st.session_state: st.session_state["invert_lados"] = False
     if "penalties" not in st.session_state:
+        # penalties[eq] = [{numero, start, end, consumido}]
         st.session_state["penalties"] = {"A": [], "B": []}
     if "stats" not in st.session_state:
         st.session_state["stats"] = {"A": {}, "B": {}}
 
+# ---------- Penalidades: helpers ----------
 def _equipe_penalidades(eq: str):
     return st.session_state["penalties"].get(eq, [])
 
@@ -188,7 +202,7 @@ def _registrar_exclusao(eq: str, numero: int, start_elapsed: float):
     st.session_state["penalties"][eq].append({
         "numero": int(numero),
         "start": float(start_elapsed),
-        "end": float(start_elapsed) + 120.0,
+        "end": float(start_elapsed) + 120.0,  # 2 minutos = 120s
         "consumido": False
     })
 
@@ -198,28 +212,69 @@ def _penalidades_ativas(eq: str, agora_elapsed: float):
 def _penalidades_concluidas_nao_consumidas(eq: str, agora_elapsed: float):
     return [p for p in _equipe_penalidades(eq) if (agora_elapsed >= p["end"]) and not p["consumido"]]
 
-def iniciar():
-    if not st.session_state["iniciado"]:
-        st.session_state["iniciado"] = True
-        st.session_state["ultimo_tick"] = time.time()
-        st.toast("⏱️ Iniciado", icon="▶️")
+# ---------- Cronômetro principal (JS fixo) ----------
+def render_cronometro_js():
+    iniciado = "true" if st.session_state["iniciado"] else "false"
+    base_elapsed = float(st.session_state["cronometro"])
+    start_epoch = float(st.session_state["ultimo_tick"]) if st.session_state["iniciado"] else None
 
-def pausar():
-    if st.session_state["iniciado"]:
-        agora = time.time()
-        st.session_state["cronometro"] += agora - st.session_state["ultimo_tick"]
-        st.session_state["iniciado"] = False
-        st.toast("⏸️ Pausado", icon="⏸️")
+    st.markdown("""
+        <style>
+        .cronofixo { position: sticky; top: 0; z-index: 999; text-align:center; padding:6px 0; background:#fff;
+                     border-bottom:1px solid #e5e7eb; margin-bottom:10px; }
+        .digital { font-family:'Courier New', monospace; font-size:28px; font-weight:700;
+                   color:#FFD700; background:#000; padding:6px 16px; border-radius:8px;
+                   letter-spacing:2px; box-shadow:0 0 8px rgba(255,215,0,.4); display:inline-block; }
+        .team-head { color:#fff; padding:6px 10px; border-radius:8px; font-size:14px; font-weight:700; margin-bottom:6px; }
+        .sec-title { font-size:14px; font-weight:700; margin:6px 0 4px; }
+        .compact .stSelectbox label, .compact .stButton button, .compact .stRadio label { font-size:13px!important; }
+        .chip { display:inline-block; padding:2px 6px; border-radius:6px; font-size:12px; margin-left:6px; }
+        .chip-sai { background:#ffe5e5; color:#a30000; }
+        .chip-ent { background:#e7ffe7; color:#005a00; }
+        .chips-line { margin:6px 0 10px; display:flex; flex-wrap:wrap; gap:6px; }
+        .chip-quadra { background:#e8ffe8; color:#0b5; border:1px solid #bfe6bf; }
+        .chip-inelegivel { background:#f2f3f5; color:#888; border:1px solid #dcdfe3; opacity:.8; }
+        </style>
+    """, unsafe_allow_html=True)
 
-def zerar():
-    st.session_state["iniciado"] = False
-    st.session_state["cronometro"] = 0.0
-    st.session_state["ultimo_tick"] = time.time()
-    st.toast("🔁 Zerado", icon="🔁")
+    html = f"""
+    <div class="cronofixo">
+      <div id="cronovisual" class="digital">⏱ 00:00</div>
+    </div>
+    <script>
+      (function(){{
+        const el = document.getElementById('cronovisual');
+        const iniciado = {iniciado};
+        const baseElapsed = {json.dumps(base_elapsed)};
+        const startEpoch = {json.dumps(start_epoch)};
+        function fmt(sec){{
+          sec = Math.max(0, Math.floor(sec));
+          const m = Math.floor(sec/60), s = sec % 60;
+          return (m<10?'0':'')+m+':' + (s<10?'0':'')+s;
+        }}
+        function tick(){{
+          let elapsed = baseElapsed;
+          if (iniciado && startEpoch){{
+            const now = Date.now()/1000;
+            elapsed = baseElapsed + (now - startEpoch);
+          }}
+          el.textContent = '⏱ ' + fmt(elapsed);
+        }}
+        tick();
+        if (window.__cronovisual_timer) clearInterval(window.__cronovisual_timer);
+        window.__cronovisual_timer = setInterval(tick, 250);
+      }})();
+    </script>
+    """
+    components.html(html, height=62)
 
-def toggle_cronometro():
-    if st.session_state.get("iniciado", False): pausar()
-    else: iniciar()
+# ---------- Utilitários de tempo / stats ----------
+def _ensure_player_stats(eq: str, numero: int):
+    if "stats" not in st.session_state:
+        st.session_state["stats"] = {"A": {}, "B": {}}
+    return st.session_state["stats"][eq].setdefault(int(numero), {
+        "jogado_1t": 0.0, "jogado_2t": 0.0, "banco": 0.0, "doismin": 0.0
+    })
 
 def tempo_logico_atual() -> float:
     if st.session_state["iniciado"]:
@@ -235,143 +290,55 @@ def _parse_mmss(txt: str) -> int | None:
     except Exception:
         return None
 
-# ---------- PLACAR ELETRÔNICO (um único HTML, sem colunas abertas) ----------
-def render_top_scoreboard(lado_esq: str, lado_dir: str):
-    iniciado = "true" if st.session_state["iniciado"] else "false"
-    base_elapsed = float(st.session_state["cronometro"])
-    start_epoch = float(st.session_state["ultimo_tick"]) if st.session_state["iniciado"] else None
+# ---------- Botões do relógio (unificado e com rerender imediato) ----------
+def toggle_relogio():
+    """Inicia ou pausa o relógio e força a atualização imediata do placar."""
+    if not st.session_state.get("iniciado", False):
+        st.session_state["iniciado"] = True
+        st.session_state["ultimo_tick"] = time.time()
+        st.toast("⏱️ Iniciado", icon="▶️")
+    else:
+        agora = time.time()
+        st.session_state["cronometro"] = float(st.session_state.get("cronometro", 0.0)) + (agora - st.session_state.get("ultimo_tick", agora))
+        st.session_state["iniciado"] = False
+        st.session_state["ultimo_tick"] = agora
+        st.toast("⏸️ Pausado", icon="⏸️")
+    st.rerun()  # <- atualização imediata do placar
 
-    nomeA = get_team_name(lado_esq)
-    nomeB = get_team_name(lado_dir)
-    corA  = st.session_state["cores"].get(lado_esq, "#0bf")
-    corB  = st.session_state["cores"].get(lado_dir, "#0bf")
+def zerar_relogio():
+    st.session_state["iniciado"] = False
+    st.session_state["cronometro"] = 0.0
+    st.session_state["ultimo_tick"] = time.time()
+    st.toast("🔁 Zerado", icon="🔁")
+    st.rerun()  # <- mostra 00:00 já
 
-    def _pen_boxes(eq: str):
-        agora = tempo_logico_atual()
-        boxes = []
-        for p in _penalidades_ativas(eq, agora):
-            restante = max(0, int(round(p["end"] - agora)))
-            mm = f"{restante//60:02d}"; ss = f"{restante%60:02d}"
-            elem = f"pen_{eq}_{p['numero']}_{int(p['start'])}"
-            boxes.append(f"""
-              <div class="pen">
-                <span class="hash">#{int(p['numero'])}</span>
-                <span id="{elem}">{mm}:{ss}</span>
-              </div>
-              <script>
-                (function(){{
-                  let r={restante};
-                  const el=document.getElementById("{elem}");
-                  const beep=new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
-                  function t(){{ r=Math.max(0,r-1);
-                    const m=String(Math.floor(r/60)).padStart(2,'0');
-                    const s=String(r%60).padStart(2,'0');
-                    if(el) el.textContent=m+":"+s;
-                    if(r<=0){{ try{{beep.play();}}catch(e){{}} clearInterval(window["tm_{elem}"]); }}
-                  }}
-                  if(window["tm_{elem}"]) clearInterval(window["tm_{elem}"]);
-                  window["tm_{elem}"]=setInterval(t,1000);
-                }})();
-              </script>
-            """)
-        return "".join(boxes) or "<div class='pen pen--empty'>—</div>"
-
-    html = f"""
-    <style>
-      .sb-stick {{
-        position: sticky; top: 0; z-index: 9999;
-        background:#0b0b0b; padding:12px 12px 6px 12px;
-        box-shadow: 0 4px 16px rgba(0,0,0,.35);
-        border-bottom:1px solid rgba(255,255,255,.08);
-      }}
-      .row1, .row2 {{ display:flex; align-items:center; justify-content:space-between; gap:12px; }}
-      .badge {{
-        color:#fff; font-weight:800; border-radius:10px; padding:8px 14px; min-width:160px; text-align:center;
-      }}
-      .badge.a {{ background:{corA}; }}
-      .badge.b {{ background:{corB}; }}
-      .clock {{
-        font-family:'Segment7','DS-Digital','Courier New',monospace;
-        font-size:64px; color:#FFD400; background:#000; padding:8px 26px; border-radius:18px;
-        box-shadow: inset 0 0 18px rgba(255,255,0,.22), 0 0 32px rgba(255,255,0,.12);
-        border:1px solid #222;
-        margin: 0 auto;
-      }}
-      .pen-wrap {{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; min-height:42px; }}
-      .pen {{
-        background:#101214; border:1px solid #2a2f36; color:#f66; padding:6px 10px; border-radius:10px;
-        font-family:'Courier New',monospace; font-size:16px; box-shadow: inset 0 0 10px rgba(255,0,0,.15);
-      }}
-      .pen .hash {{ color:#faa; margin-right:6px; }}
-      .pen--empty {{ color:#aaa; border-style:dashed; }}
-      @media(max-width:900px){{ .clock{{font-size:48px;}} .badge{{min-width:120px;}} }}
-    </style>
-
-    <div class="sb-stick">
-      <div class="row1">
-        <div class="badge a">{nomeA}</div>
-        <div class="clock" id="sb_clock">00:00</div>
-        <div class="badge b">{nomeB}</div>
-      </div>
-      <div class="row2" style="margin-top:8px;">
-        <div class="pen-wrap">{_pen_boxes(lado_esq)}</div>
-        <div style="flex:1"></div>
-        <div class="pen-wrap" style="justify-content:flex-end;">{_pen_boxes(lado_dir)}</div>
-      </div>
-    </div>
-
-    <script>
-      (function(){{
-        const el = document.getElementById('sb_clock');
-        const iniciado = {iniciado};
-        const baseElapsed = {json.dumps(base_elapsed)};
-        const startEpoch = {json.dumps(start_epoch)};
-        function fmt(sec){{
-          sec = Math.max(0, Math.floor(sec));
-          const m = Math.floor(sec/60), s = sec % 60;
-          return (m<10?'0':'')+m+':' + (s<10?'0':'')+s;
-        }}
-        function tick(){{
-          let elapsed = baseElapsed;
-          if (iniciado && startEpoch){{
-            const now = Date.now()/1000;
-            elapsed = baseElapsed + (now - startEpoch);
-          }}
-          el.textContent = fmt(elapsed);
-        }}
-        tick();
-        if (window.__sb_timer) clearInterval(window.__sb_timer);
-        window.__sb_timer = setInterval(tick, 250);
-      }})();
-    </script>
-    """
-    # um único render – evita "piscar" e desalinhamento
-    components.html(html, height=150)
-
-# ---------- Painel da equipe (sem alterações de lógica) ----------
+# ---------- Painel da equipe ----------
 def painel_equipe(eq: str):
     cor = st.session_state["cores"].get(eq, "#333")
     nome = get_team_name(eq)
-    st.markdown(f"<div style='background:{cor};color:#fff;padding:6px 10px;border-radius:8px;font-weight:700;margin:8px 0 6px 0;'>{nome}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='team-head' style='background:{cor};'>{nome}</div>", unsafe_allow_html=True)
 
+    # Linha com quem está em quadra (jogando) e quem está nos 2' (cinza)
     jogadores = st.session_state["equipes"].get(eq, [])
     on_court = sorted([int(j["numero"]) for j in jogadores if j.get("estado") == "jogando" and j.get("elegivel", True)])
     excluidos = sorted([int(j["numero"]) for j in jogadores if j.get("estado") == "excluido" and j.get("elegivel", True)])
 
-    if on_court or excluidos:
-        chips = []
-        for num in on_court:
-            chips.append(f"<span style='display:inline-block;padding:2px 6px;border-radius:6px;font-size:12px;margin:0 6px 6px 0;background:#e8ffe8;color:#0b5;border:1px solid #bfe6bf;'>#{num}</span>")
-        for num in excluidos:
-            chips.append(f"<span style='display:inline-block;padding:2px 6px;border-radius:6px;font-size:12px;margin:0 6px 6px 0;background:#f2f3f5;color:#888;border:1px solid #dcdfe3;opacity:.85;'>#{num}</span>")
-        st.markdown("".join(chips), unsafe_allow_html=True)
+    chips = []
+    for num in on_court:
+        chips.append(f"<span class='chip chip-quadra' title='Jogando'>#{num}</span>")
+    for num in excluidos:
+        chips.append(f"<span class='chip chip-inelegivel' title='Cumprindo 2 minutos'>#{num}</span>")
+
+    if chips:
+        st.markdown(f"<div class='chips-line'>{''.join(chips)}</div>", unsafe_allow_html=True)
     else:
         st.caption("Nenhum jogador em quadra no momento.")
 
     with st.container():
-        st.markdown("<div>", unsafe_allow_html=True)
+        st.markdown("<div class='compact'>", unsafe_allow_html=True)
 
-        st.markdown("<div style='font-size:14px;font-weight:700;margin:6px 0 4px;'>🔁 Substituição</div>", unsafe_allow_html=True)
+        # --- Substituição ---
+        st.markdown("<div class='sec-title'>🔁 Substituição</div>", unsafe_allow_html=True)
         cols_sub = st.columns([1, 1, 1])
         list_sai = jogadores_por_estado(eq, "jogando")
         list_entra = jogadores_por_estado(eq, "banco")
@@ -382,23 +349,29 @@ def painel_equipe(eq: str):
                 atualizar_estado(eq, sai, "banco")
                 atualizar_estado(eq, entra, "jogando")
                 st.success(f"Substituição: Sai {sai} / Entra {entra}", icon="🔁")
+                st.markdown(
+                    f"<span class='chip chip-sai'>Sai {sai}</span><span class='chip chip-ent'>Entra {entra}</span>",
+                    unsafe_allow_html=True
+                )
             else:
                 st.error("Seleção inválida para substituição.")
         st.markdown("---")
 
+        # --- 2 minutos & Completou ---
         cols_pen = st.columns([1, 1])
+
         with cols_pen[0]:
-            st.markdown("<div style='font-size:14px;font-weight:700;margin:6px 0 4px;'>⛔ 2 minutos</div>", unsafe_allow_html=True)
+            st.markdown("<div class='sec-title'>⛔ 2 minutos</div>", unsafe_allow_html=True)
             jogadores_all = elenco(eq)
             jog_2m = st.selectbox("Jogador", jogadores_all, key=f"doismin_sel_{eq}")
             if st.button("Aplicar 2'", key=f"btn_2min_{eq}", disabled=(len(jogadores_all) == 0)):
                 atualizar_estado(eq, jog_2m, "excluido")
                 start = tempo_logico_atual()
                 _registrar_exclusao(eq, jog_2m, start_elapsed=start)
-                st.warning(f"Jogador {jog_2m} excluído por 2 minutos (placar no topo mostra # e contagem).")
+                st.warning(f"Jogador {jog_2m} excluído por 2 minutos.")
 
         with cols_pen[1]:
-            st.markdown("<div style='font-size:14px;font-weight:700;margin:6px 0 4px;'>✅ Completou</div>", unsafe_allow_html=True)
+            st.markdown("<div class='sec-title'>✅ Completou</div>", unsafe_allow_html=True)
             agora = tempo_logico_atual()
             concluidas = _penalidades_concluidas_nao_consumidas(eq, agora)
             elegiveis_retorno = jogadores_por_estado(eq, "banco") + jogadores_por_estado(eq, "excluido")
@@ -412,50 +385,129 @@ def painel_equipe(eq: str):
                     atualizar_estado(eq, comp, "jogando")
                     st.success(f"Jogador {comp} entrou após 2'.")
 
-        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown("---")
 
+        # --- Expulsão ---
+        st.markdown("<div class='sec-title'>🟥 Expulsão</div>", unsafe_allow_html=True)
+        jogadores_all = elenco(eq)
+        exp = st.selectbox("Jogador", jogadores_all, key=f"exp_sel_{eq}")
+        if st.button("Confirmar expulsão", key=f"btn_exp_{eq}", disabled=(len(jogadores_all) == 0)):
+            ok = False
+            for j in st.session_state["equipes"][eq]:
+                if int(j["numero"]) == int(exp):
+                    j["estado"] = "expulso"
+                    j["elegivel"] = False
+                    ok = True
+                    break
+            if ok:
+                st.error(f"Jogador {exp} expulso.")
+            else:
+                st.error("Não foi possível expulsar o jogador selecionado.")
+
+        st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------- Render da ABA 3 ----------
 with abas[2]:
     _init_clock_state()
     st.subheader("Controle do Jogo")
 
-    st.session_state["periodo"] = st.selectbox(
-        "Período", ["1º Tempo", "2º Tempo"],
-        index=0 if st.session_state["periodo"] == "1º Tempo" else 1,
-        key="sel_periodo_ctl"
-    )
-    st.session_state["invert_lados"] = st.toggle("Inverter lados (A ⇄ B)", value=st.session_state["invert_lados"])
+    # Linha do relógio e período
+    cc1, cc2, cc3 = st.columns([1, 1, 2])
+    with cc1:
+        label = "▶️ Iniciar" if not st.session_state.get("iniciado", False) else "⏸️ Pausar"
+        st.button(label, key="clk_toggle", on_click=toggle_relogio, use_container_width=True)
+    with cc2:
+        st.button("🔁 Zerar", key="clk_reset", on_click=zerar_relogio, use_container_width=True)
+    with cc3:
+        c31, c32 = st.columns([1, 1])
+        with c31:
+            st.session_state["periodo"] = st.selectbox(
+                "Período", ["1º Tempo", "2º Tempo"],
+                index=0 if st.session_state["periodo"] == "1º Tempo" else 1,
+                key="sel_periodo"
+            )
+        with c32:
+            st.session_state["invert_lados"] = st.toggle("Inverter lados (A ⇄ B)", value=st.session_state["invert_lados"])
 
+    # Cronômetro JS
+    render_cronometro_js()
+
+    # Painéis lado a lado — respeitando “Inverter lados”
     lados = ("A", "B") if not st.session_state["invert_lados"] else ("B", "A")
-
-    # ----- PLACAR STICKY (novo, estável, sem "piscar") -----
-    render_top_scoreboard(lados[0], lados[1])
-    # botões ficam colados ao placar, mas são Streamlit (para manter estado)
-    b1, b2 = st.columns([1,1])
-    with b1:
-        rotulo = "⏸️ Pausar" if st.session_state["iniciado"] else "▶️ Iniciar"
-        if st.button(rotulo, key="sb_toggle"): toggle_cronometro()
-    with b2:
-        if st.button("🔁 Zerar", key="sb_reset"): zerar()
-
-    # Painéis lado a lado
     col_esq, col_dir = st.columns(2)
     with col_esq:
         if st.session_state["equipes"][lados[0]]:
+            st.markdown(f"#### {get_team_name(lados[0])}")
             painel_equipe(lados[0])
         else:
             st.info(f"Cadastre a {get_team_name(lados[0])} na aba de Configuração.")
     with col_dir:
         if st.session_state["equipes"][lados[1]]:
+            st.markdown(f"#### {get_team_name(lados[1])}")
             painel_equipe(lados[1])
         else:
             st.info(f"Cadastre a {get_team_name(lados[1])} na aba de Configuração.")
 
-    # ---------- Substituições retroativas (igual antes) ----------
+    # -------------------- Penalidades ativas (persistentes) --------------------
+    st.markdown("### Penalidades ativas")
+    agora = tempo_logico_atual()
+
+    def _render_pen_timers(eq: str):
+        ativas = _penalidades_ativas(eq, agora)
+        if not ativas:
+            st.caption(f"{get_team_name(eq)}: nenhuma penalidade ativa.")
+            return
+        st.markdown(f"**{get_team_name(eq)}**")
+        for p in ativas:
+            restante = max(0, int(round(p["end"] - agora)))
+            minutos = restante // 60
+            segundos = restante % 60
+            elem_id = f"pen_{eq}_{p['numero']}_{int(p['start'])}"  # id único
+
+            html_tpl = Template("""
+            <div style="margin:6px 0;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <div style="font-size:13px;">#$numero — resta:</div>
+                <div id="$elem_id" style="font-family:'Courier New';font-size:18px;color:#FF3333;background:#111;padding:3px 10px;border-radius:6px;display:inline-block;text-shadow:0 0 6px red;">$mm:$ss</div>
+              </div>
+            </div>
+            <script>
+              (function(){
+                let r = $restante;
+                const el = document.getElementById("$elem_id");
+                const beep = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+                function tick(){
+                  r = Math.max(0, r-1);
+                  const m = String(Math.floor(r/60)).padStart(2,'0');
+                  const s = String(r%60).padStart(2,'0');
+                  if (el) el.textContent = m + ":" + s;
+                  if (r <= 0) { try { beep.play(); } catch(e) {} clearInterval(window["timer_$elem_id"]); }
+                }
+                if (window["timer_$elem_id"]) clearInterval(window["timer_$elem_id"]);
+                window["timer_$elem_id"] = setInterval(tick, 1000);
+              })();
+            </script>
+            """)
+            html = html_tpl.substitute(
+                numero=int(p["numero"]),
+                elem_id=elem_id,
+                mm=f"{minutos:02d}",
+                ss=f"{segundos:02d}",
+                restante=int(restante),
+            )
+            components.html(html, height=48)
+
+    colA_t, colB_t = st.columns(2)
+    with colA_t: _render_pen_timers(lados[0])
+    with colB_t: _render_pen_timers(lados[1])
+
+    # -----------------------------------------------------
+    # Substituições avulsas (retroativas) — sempre aplica ao estado atual
+    # -----------------------------------------------------
     st.divider()
     st.markdown("## 📝 Substituições avulsas (retroativas)")
 
+    # Garantia de stats
     if "stats" not in st.session_state:
         st.session_state["stats"] = {"A": {}, "B": {}}
 
@@ -482,16 +534,11 @@ with abas[2]:
         entra_num = st.selectbox("Entra", entra_opcoes, key="retro_entra")
     with c3:
         tempo_str = st.text_input(
-            "Tempo do jogo (MM:SS)", value="00:00",
-            key="retro_tempo", help="Ex.: 12:34 = ocorreu aos 12min34s.",
+            "Tempo do jogo (MM:SS)",
+            value="00:00",
+            key="retro_tempo",
+            help="Ex.: 12:34 = ocorreu aos 12min34s.",
         )
-
-    def _ensure_player_stats(eq: str, numero: int):
-        if "stats" not in st.session_state:
-            st.session_state["stats"] = {"A": {}, "B": {}}
-        return st.session_state["stats"][eq].setdefault(int(numero), {
-            "jogado_1t": 0.0, "jogado_2t": 0.0, "banco": 0.0, "doismin": 0.0
-        })
 
     def aplicar_retro():
         t_mark = _parse_mmss(tempo_str)
@@ -526,14 +573,19 @@ with abas[2]:
             f"Sai {sai_num} (−{mm_dt:02d}:{ss_dt:02d} jogado, + banco) | "
             f"Entra {entra_num} (+ jogado, − banco) a partir de {tempo_str} até agora."
         )
+
         st.session_state["flash_text"] = f"Substituição retroativa realizada: Sai {sai_num} / Entra {entra_num}"
         st.session_state["flash_html"] = (
-            f"<span style='background:#ffe5e5;color:#a30000;border-radius:6px;padding:2px 6px;margin-right:6px;'>Sai {sai_num}</span>"
-            f"<span style='background:#e7ffe7;color:#005a00;border-radius:6px;padding:2px 6px;'>Entra {entra_num}</span>"
+            f"<span class='chip chip-sai'>Sai {sai_num}</span>"
+            f"<span class='chip chip-ent'>Entra {entra_num}</span>"
         )
-        for k in (f"sai_{equipe_sel}", f"entra_{equipe_sel}", f"doismin_sel_{equipe_sel}",
-                  f"comp_sel_{equipe_sel}", f"exp_sel_{equipe_sel}"):
+
+        for k in (
+            f"sai_{equipe_sel}", f"entra_{equipe_sel}", f"doismin_sel_{equipe_sel}",
+            f"comp_sel_{equipe_sel}", f"exp_sel_{equipe_sel}",
+        ):
             st.session_state.pop(k, None)
+
         st.rerun()
 
     if st.button("➕ Inserir substituição retroativa", use_container_width=True, key="retro_btn"):
@@ -549,7 +601,7 @@ with abas[2]:
 
 
 # =====================================================
-# ABA 4 — VISUALIZAÇÃO DE DADOS
+# ABA 4 — VISUALIZAÇÃO DE DADOS (auto opcional)
 # =====================================================
 with abas[3]:
     import pandas as pd
@@ -569,7 +621,7 @@ with abas[3]:
         for eq in ["A", "B"]:
             for j in st.session_state["equipes"].get(eq, []):
                 num = int(j["numero"])
-                s = st.session_state["stats"][eq].setdefault(num, {"jogado_1t":0,"jogado_2t":0,"banco":0,"doismin":0})
+                s = _ensure_player_stats(eq, num)
                 estado = j.get("estado", "banco")
                 if estado == "jogando":
                     s[jogado_key] += dt

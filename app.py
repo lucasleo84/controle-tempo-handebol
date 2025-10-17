@@ -165,7 +165,7 @@ def _penalidade_top(eq: str, agora_elapsed: float):
     return (int(p["numero"]), int(restante))
 
 # =====================================================
-# 🧢 PLACAR GLOBAL (ACIMA DAS ABAS)
+# 🧢 PLACAR GLOBAL (FIXO NO TOPO)
 # =====================================================
 
 def render_top_scoreboard():
@@ -263,12 +263,12 @@ def render_top_scoreboard():
               <div class="ol-grid">
                 <div class="ol-side">
                   <div class="ol-team" style="background:{corA};">{nomeA}</div>
-                  <div id="__ol_penA" class="ol-mini">{"#" + String({numA}) + " – " + "{(restA//60):02d}:{(restA%60):02d}" if numA is not None else "—"}</div>
+                  <div id="__ol_penA" class="ol-mini">{("#" + String({numA}) + " – " + "{(restA//60):02d}:{(restA%60):02d}") if numA is not None else "—"}</div>
                 </div>
                 <div id="__ol_clock" class="ol-clock">00:00</div>
                 <div class="ol-side ol-right">
                   <div class="ol-team" style="background:{corB};">{nomeB}</div>
-                  <div id="__ol_penB" class="ol-mini">{"#" + String({numB}) + " – " + "{(restB//60):02d}:{(restB%60):02d}" if numB is not None else "—"}</div>
+                  <div id="__ol_penB" class="ol-mini">{("#" + String({numB}) + " – " + "{(restB//60):02d}:{(restB%60):02d}") if numB is not None else "—"}</div>
                 </div>
               </div>
             </div>
@@ -339,6 +339,9 @@ def render_top_scoreboard():
 
     # injeta no DOM (sem ocupar espaço no fluxo: altura 0)
     components.html(html, height=0)
+
+# Render do placar (acima das abas)
+render_top_scoreboard()
 
 # =====================================================
 # 🧭 ABAS

@@ -1,3 +1,4 @@
+# app.py
 import time
 import json
 import pandas as pd
@@ -19,7 +20,7 @@ def _init_globals():
     if "nome_B" not in st.session_state:
         st.session_state["nome_B"] = "Equipe B"
 
-    # cronômetro
+    # cronômetro principal
     if "iniciado" not in st.session_state:
         st.session_state["iniciado"] = False
     if "ultimo_tick" not in st.session_state:
@@ -82,7 +83,7 @@ def _parse_mmss(txt: str) -> int | None:
         return None
 
 # =====================================================
-# CRONÔMETRO / PENALIDADES – funções de estado
+# CRONÔMETRO / PENALIDADES – estado
 # =====================================================
 def iniciar():
     if not st.session_state["iniciado"]:
@@ -125,10 +126,9 @@ def _penalidade_top(eq: str, agora_elapsed: float):
     return (int(p["numero"]), int(restante))
 
 # =====================================================
-# 🧢 CABEÇALHO FIXO (sticky, sem overlay externo)
-# – botões são do Streamlit (confiáveis)
+# 🎛️ LAYOUT: PLACAR FIXO + ABAS FIXAS (só o conteúdo rola)
 # =====================================================
-def render_header_sticky():
+def render_top_scoreboard():
     iniciado    = bool(st.session_state["iniciado"])
     base_elapsed= float(st.session_state["cronometro"])
     start_epoch = float(st.session_state["ultimo_tick"]) if iniciado else None
@@ -142,125 +142,161 @@ def render_header_sticky():
     nomeA = get_team_name("A")
     nomeB = get_team_name("B")
 
-    st.markdown("""
+    SCORE_H = 120   # altura do placar
+    TABS_H  = 46    # altura aproximada da barra de abas do Streamlit
+
+    st.markdown(f"""
     <style>
-      .sticky-wrap { position: sticky; top: 0; z-index: 50; }
-      .score-card { background: linear-gradient(180deg,#0a0a0a 0%, #0e0e0e 100%);
-                    border-bottom: 2px solid #222; border-radius: 0 0 14px 14px;
-                    box-shadow: 0 8px 18px rgba(0,0,0,.35); padding: 10px 14px 12px; }
-      .score-grid { display:grid; grid-template-columns: 1fr auto 1fr; gap:16px; align-items:center; }
-      .team-box   { display:flex; flex-direction:column; gap:8px; }
-      .team-name  { color:#fff; font-weight:800; padding:8px 14px; border-radius:12px; font-size:16px;
-                    letter-spacing:.3px; box-shadow:0 2px 6px rgba(0,0,0,.35); }
-      .mini-box   { font-family:'Courier New', monospace; font-size:22px; font-weight:800; text-align:center;
-                    color:#FF5555; background:#111; padding:8px 12px; border-radius:10px;
-                    border:1px solid #333; box-shadow: inset 0 0 10px rgba(255,255,255,.04); min-height:40px; }
-      .clock      { font-family:'Courier New', monospace; font-size:72px; line-height:1; font-weight:900;
-                    color:#FFD700; background:#000; padding:12px 28px; border-radius:14px;
-                    letter-spacing:4px; text-align:center; min-width: 360px;
-                    border:1px solid #333; box-shadow:0 0 22px rgba(255,215,0,.35), inset 0 0 18px rgba(255,255,255,.06);
-                    text-shadow:0 0 10px rgba(255,215,0,.45); }
-      .ctrls      { display:flex; gap:10px; justify-content:center; margin-top:6px; }
-      .stButton>button.score-btn { background:#222; color:#fff; border:1px solid #444; border-radius:10px;
-                                   padding:6px 12px; font-weight:700; }
-      .stButton>button.score-btn:hover { background:#2d2d2d; }
+      :root {{
+        --scoreH: {SCORE_H}px;
+        --tabsH:  {TABS_H}px;
+      }}
+      /* Desloca conteúdo para baixo do placar + tabs */
+      .block-container {{
+        padding-top: calc(var(--scoreH) + var(--tabsH) + 12px) !important;
+      }}
+
+      /* ===== PLACAR FIXO ===== */
+      .score-fixed {{
+        position: fixed; top: 0; left: 0; right: 0;
+        z-index: 1000;
+        background: linear-gradient(180deg,#0a0a0a 0%, #0e0e0e 100%);
+        border-bottom: 2px solid #222;
+        box-shadow: 0 6px 14px rgba(0,0,0,.35);
+      }}
+      .score-inner {{ max-width: 1100px; margin: 6px auto; padding: 8px 12px; }}
+      .score-grid {{ display:grid; grid-template-columns: 1fr auto 1fr; gap:16px; align-items:center; }}
+
+      .team-box   {{ display:flex; flex-direction:column; gap:6px; }}
+      .team-name  {{ color:#fff; font-weight:800; padding:8px 14px; border-radius:12px; font-size:16px;
+                     letter-spacing:.3px; box-shadow:0 2px 6px rgba(0,0,0,.35); }}
+      .mini-box   {{ font-family:'Courier New', monospace; font-size:20px; font-weight:800; text-align:center;
+                     color:#FF5555; background:#111; padding:6px 10px; border-radius:10px;
+                     border:1px solid #333; box-shadow: inset 0 0 10px rgba(255,255,255,.04); min-height:36px; }}
+
+      .clock      {{ font-family:'Courier New', monospace; font-size:64px; line-height:1; font-weight:900;
+                     color:#FFD700; background:#000; padding:10px 24px; border-radius:14px;
+                     letter-spacing:4px; text-align:center; min-width: 320px;
+                     border:1px solid #333; box-shadow:0 0 22px rgba(255,215,0,.35),
+                                               inset 0 0 18px rgba(255,255,255,.06);
+                     text-shadow:0 0 10px rgba(255,215,0,.45); }}
+
+      .stButton>button.score-btn {{ background:#222; color:#fff; border:1px solid #444; border-radius:10px;
+                                   padding:6px 12px; font-weight:700; }}
+      .stButton>button.score-btn:hover {{ background:#2d2d2d; }}
+
+      /* ===== ABAS FIXAS ===== */
+      div[data-baseweb="tab-list"] {{
+        position: fixed;
+        top: var(--scoreH);
+        left: 0; right: 0;
+        z-index: 900;
+        background: var(--background-color, #0e0e0e00);
+        backdrop-filter: blur(2px);
+        padding: 6px 16px 6px 16px;
+        box-shadow: 0 4px 10px rgba(0,0,0,.12);
+      }}
+      div[data-baseweb="tab-list"] > div {{ max-width: 1100px; margin: 0 auto; }}
     </style>
     """, unsafe_allow_html=True)
 
-    with st.container():
-        st.markdown('<div class="sticky-wrap">', unsafe_allow_html=True)
-        st.markdown('<div class="score-card">', unsafe_allow_html=True)
-        colL, colC, colR = st.columns([1, 1, 1])
+    # HTML do placar fixo
+    st.markdown('<div class="score-fixed"><div class="score-inner">', unsafe_allow_html=True)
+    colL, colC, colR = st.columns([1, 1, 1])
 
-        with colL:
-            st.markdown(f'<div class="team-box"><div class="team-name" style="background:{corA};">{nomeA}</div>'
-                        f'<div id="penA" class="mini-box">-</div></div>', unsafe_allow_html=True)
-        with colC:
-            # relógio
-            components.html(f"""
-              <div id="clock" class="clock">00:00</div>
-              <script>
-                (function(){{
-                  const clockEl = document.currentScript.previousElementSibling;
-                  const iniciado   = {str(iniciado).lower()};
-                  const baseElapsed= {base_elapsed};
-                  const startEpoch = {json.dumps(start_epoch)};
-                  function fmt(sec){{
-                    sec = Math.max(0, Math.floor(sec));
-                    const m = Math.floor(sec/60), s = sec % 60;
-                    return (m<10?'0':'')+m+':' + (s<10?'0':'')+s;
-                  }}
-                  function tick(){{
-                    let e = baseElapsed;
-                    if (iniciado && startEpoch) {{
-                      const now = Date.now()/1000;
-                      e = baseElapsed + (now - startEpoch);
-                    }}
-                    if (clockEl) clockEl.textContent = fmt(e);
-                    window.__raf_clock = requestAnimationFrame(tick);
-                  }}
-                  if (window.__raf_clock) cancelAnimationFrame(window.__raf_clock);
-                  window.__raf_clock = requestAnimationFrame(tick);
-                }})();
-              </script>
-            """, height=100)
-
-            # botões NATIVOS Streamlit
-            c1, c2 = st.columns(2)
-            with c1:
-                if st.button("⏯ Iniciar / Pausar", key="btn_toggle", use_container_width=True,
-                             help="Alterna entre iniciar e pausar", type="secondary"):
-                    if st.session_state["iniciado"]:
-                        pausar()
-                    else:
-                        iniciar()
-                    st.rerun()
-            with c2:
-                if st.button("🔁 Zerar", key="btn_reset", use_container_width=True, type="secondary"):
-                    zerar()
-                    st.rerun()
-
-        with colR:
-            st.markdown(f'<div class="team-box" style="align-items:end;"><div class="team-name" style="background:{corB};">{get_team_name("B")}</div>'
-                        f'<div id="penB" class="mini-box">-</div></div>', unsafe_allow_html=True)
-
-        # timers 2' (JS local, sem overlay)
+    with colL:
+        st.markdown(
+            f'<div class="team-box"><div class="team-name" style="background:{corA};">{nomeA}</div>'
+            f'<div id="penA" class="mini-box">-</div></div>',
+            unsafe_allow_html=True
+        )
+    with colC:
         components.html(f"""
+          <div id="clock" class="clock">00:00</div>
           <script>
             (function(){{
-              const boxA = parent.document.querySelector('div#penA');
-              const boxB = parent.document.querySelector('div#penB');
-              let nA = {json.dumps(numA)}, rA = {int(restA)};
-              let nB = {json.dumps(numB)}, rB = {int(restB)};
-              const beep = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
-              function upd(el,secs,num){{
-                if(!el) return;
-                if(!secs || secs<=0 || !num){{ el.textContent='-'; return; }}
-                const m = String(Math.floor(secs/60)).padStart(2,'0');
-                const s = String(secs%60).padStart(2,'0');
-                el.textContent = '#' + String(num) + ' ' + m + ':' + s;
+              const el = document.currentScript.previousElementSibling;
+              const iniciado   = {str(iniciado).lower()};
+              const baseElapsed= {base_elapsed};
+              const startEpoch = {json.dumps(start_epoch)};
+              function fmt(sec){{
+                sec = Math.max(0, Math.floor(sec));
+                const m = Math.floor(sec/60), s = sec%60;
+                return (m<10?'0':'')+m+':' + (s<10?'0':'')+s;
               }}
-              function tickA(){{
-                if(!rA) return;
-                rA = Math.max(0, rA-1); upd(boxA,rA,nA); if(rA===0){{try{{beep.play();}}catch(e){{}}}}
+              function tick(){{
+                let e = baseElapsed;
+                if (iniciado && startEpoch) {{
+                  const now = Date.now()/1000;
+                  e = baseElapsed + (now - startEpoch);
+                }}
+                el.textContent = fmt(e);
+                window.__raf_clock && cancelAnimationFrame(window.__raf_clock);
+                window.__raf_clock = requestAnimationFrame(tick);
               }}
-              function tickB(){{
-                if(!rB) return;
-                rB = Math.max(0, rB-1); upd(boxB,rB,nB); if(rB===0){{try{{beep.play();}}catch(e){{}}}}
-              }}
-              upd(boxA,rA,nA); upd(boxB,rB,nB);
-              if(window.__intA) clearInterval(window.__intA);
-              if(window.__intB) clearInterval(window.__intB);
-              if(rA>0) window.__intA = setInterval(tickA,1000);
-              if(rB>0) window.__intB = setInterval(tickB,1000);
+              tick();
             }})();
           </script>
-        """, height=0)
+        """, height=96)
 
-        st.markdown('</div>', unsafe_allow_html=True)  # score-card
-        st.markdown('</div>', unsafe_allow_html=True)  # sticky-wrap
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("⏯ Iniciar / Pausar", key="btn_toggle", use_container_width=True,
+                         help="Alterna entre iniciar e pausar", type="secondary", kwargs=None):
+                if st.session_state["iniciado"]:
+                    pausar()
+                else:
+                    iniciar()
+                st.rerun()
+        with c2:
+            if st.button("🔁 Zerar", key="btn_reset", use_container_width=True, type="secondary"):
+                zerar()
+                st.rerun()
 
-render_header_sticky()
+    with colR:
+        st.markdown(
+            f'<div class="team-box" style="align-items:end;"><div class="team-name" style="background:{corB};">{get_team_name("B")}</div>'
+            f'<div id="penB" class="mini-box">-</div></div>',
+            unsafe_allow_html=True
+        )
+
+    # timers 2' no placar
+    components.html(f"""
+      <script>
+        (function(){{
+          const boxA = parent.document.querySelector('div#penA');
+          const boxB = parent.document.querySelector('div#penB');
+          let nA = {json.dumps(numA)}, rA = {int(restA)};
+          let nB = {json.dumps(numB)}, rB = {int(restB)};
+          const beep = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
+          function upd(el,secs,num){{
+            if(!el) return;
+            if(!secs || secs<=0 || !num){{ el.textContent='-'; return; }}
+            const m = String(Math.floor(secs/60)).padStart(2,'0');
+            const s = String(secs%60).padStart(2,'0');
+            el.textContent = '#' + String(num) + ' ' + m + ':' + s;  // <- ajuste o formato aqui, se quiser
+          }}
+          function tickA(){{
+            if(!rA) return;
+            rA = Math.max(0, rA-1); upd(boxA,rA,nA); if(rA===0){{try{{beep.play();}}catch(e){{}}}}
+          }}
+          function tickB(){{
+            if(!rB) return;
+            rB = Math.max(0, rB-1); upd(boxB,rB,nB); if(rB===0){{try{{beep.play();}}catch(e){{}}}}
+          }}
+          upd(boxA,rA,nA); upd(boxB,rB,nB);
+          if(window.__intA) clearInterval(window.__intA);
+          if(window.__intB) clearInterval(window.__intB);
+          if(rA>0) window.__intA = setInterval(tickA,1000);
+          if(rB>0) window.__intB = setInterval(tickB,1000);
+        }})();
+      </script>
+    """, height=0)
+
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
+# — desenha placar + fixa abas —
+render_top_scoreboard()
 
 # =====================================================
 # 🧭 ABAS
@@ -288,7 +324,7 @@ with abas[0]:
     for eq, col in zip(["A", "B"], [colA, colB]):
         with col:
             st.markdown(f"### {get_team_name(eq)}")
-            # nome SEM value= (evita sobrescrever)
+            # Nome sem value= (evita sobrescrever ao salvar a outra equipe)
             st.text_input(f"Nome da equipe {eq}", key=f"nome_{eq}")
             qtd_default = len(st.session_state["equipes"][eq]) or 7
             qtd = st.number_input(f"Quantidade de jogadores ({eq})",
@@ -320,7 +356,7 @@ with abas[0]:
                 st.success(f"Equipe {eq} salva com {len(numeros)} jogadores.")
 
 # =====================================================
-# ABA 2 — TITULARES (opcional; corrige retroativamente 100%)
+# ABA 2 — TITULARES (opcional; corrige retroativamente)
 # =====================================================
 with abas[1]:
     st.subheader("Definir Titulares (opcional; corrige retroativamente o período atual)")
@@ -381,7 +417,7 @@ def painel_equipe(eq: str):
         unsafe_allow_html=True
     )
 
-    jogadores = st.session_state["equipes"].get(eq, [])
+    jogadores = st.session_state["equipes"][eq]
     on_court  = sorted([int(j["numero"]) for j in jogadores if j.get("estado") == "jogando" and j.get("elegivel", True)])
     excluidos = sorted([int(j["numero"]) for j in jogadores if j.get("estado") == "excluido" and j.get("elegivel", True)])
 

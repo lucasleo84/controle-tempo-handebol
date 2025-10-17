@@ -134,29 +134,50 @@ def _penalidade_top(eq: str, agora_elapsed: float):
 # 🧢 PLACAR GLOBAL (ACIMA DAS ABAS)
 # =====================================================
 def render_top_scoreboard():
-    # CSS
+    # CSS do placar (cabeçalho fixo)
     st.markdown("""
     <style>
-      .top-sticky { position: sticky; top: 0; z-index: 1000;
-        background: #0b0b0b; padding: 10px 12px 8px; border-bottom: 2px solid #222; }
-      .placar-grid { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; }
+      .top-sticky {
+        position: sticky; top: 0; z-index: 10000; /* bem acima de tudo */
+        background: linear-gradient(180deg, #0a0a0a 0%, #0e0e0e 100%);
+        padding: 12px 14px 10px; border-bottom: 2px solid #222;
+        box-shadow: 0 6px 12px rgba(0,0,0,.35);
+      }
+      .placar-grid {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center; gap: 16px;
+      }
       .side-box { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
       .side-box.right { align-items: flex-end; }
-      .team-tag { color: #fff; font-weight: 700; padding: 4px 8px; border-radius: 8px; font-size: 14px; }
+      .team-tag {
+        color: #fff; font-weight: 800; padding: 6px 10px; border-radius: 10px; font-size: 15px;
+        letter-spacing: .3px; box-shadow: 0 2px 6px rgba(0,0,0,.35);
+      }
       .main-clock {
-        font-family: 'Courier New', monospace; font-size: 56px; line-height: 1; font-weight: 800;
-        color: #FFD700; background: #000; padding: 8px 18px; border-radius: 10px;
-        letter-spacing: 3px; box-shadow: 0 0 14px rgba(255,215,0,.35), inset 0 0 10px rgba(255,255,255,.05);
-        border: 1px solid #333; text-align:center; min-width: 260px;
+        font-family: 'Courier New', monospace;
+        font-size: 72px; line-height: 1; font-weight: 900;
+        color: #FFD700; background: #000; padding: 10px 24px; border-radius: 14px;
+        letter-spacing: 4px;
+        box-shadow: 0 0 22px rgba(255,215,0,.35), inset 0 0 18px rgba(255,255,255,.06);
+        border: 1px solid #333; text-align:center; min-width: 320px;
+        text-shadow: 0 0 10px rgba(255,215,0,.45);
       }
       .mini2 {
-        font-family: 'Courier New', monospace; font-size: 22px; font-weight: 700;
-        color: #FF5555; background:#111; padding: 4px 10px; border-radius: 8px;
-        text-shadow: 0 0 6px rgba(255,0,0,.6); border: 1px solid #333; min-width: 110px; text-align:center;
+        font-family: 'Courier New', monospace;
+        font-size: 26px; font-weight: 800;
+        color: #FF5555; background:#111; padding: 6px 12px; border-radius: 10px;
+        text-shadow: 0 0 6px rgba(255,0,0,.6);
+        border: 1px solid #333; min-width: 120px; text-align:center;
+        box-shadow: inset 0 0 10px rgba(255,255,255,.04);
       }
       .mini2.muted { color: #888; text-shadow: none; }
-      .controls-row { margin-top: 6px; display:flex; gap:8px; justify-content:center; }
-      .stButton > button { border-radius: 8px; padding: 4px 12px; border: 1px solid #333; }
+      .controls-row { margin-top: 8px; display:flex; gap:10px; justify-content:center; }
+      .stButton > button {
+        border-radius: 10px; padding: 6px 14px; border: 1px solid #333;
+        background: #161616; color: #eee; font-weight: 700;
+      }
+      .stButton > button:hover { background:#1e1e1e; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -164,6 +185,7 @@ def render_top_scoreboard():
     base_elapsed = float(st.session_state["cronometro"])
     start_epoch = float(st.session_state["ultimo_tick"]) if st.session_state["iniciado"] else None
 
+    # 2' — menor restante de cada lado
     agora = tempo_logico_atual()
     numA, restA = _penalidade_top("A", agora)
     numB, restB = _penalidade_top("B", agora)
@@ -221,7 +243,7 @@ def render_top_scoreboard():
         rA = Math.max(0, rA - 1);
         const m = String(Math.floor(rA/60)).padStart(2,'0');
         const s = String(rA%60).padStart(2,'0');
-        penA.textContent = m + ':' + s;
+        penA.textContent = (rA>0? m + ':' + s : '—');
         if (rA === 0){ try{ beep.play(); }catch(e){} }
       }
       if (window.__top_penA) clearInterval(window.__top_penA);
@@ -236,7 +258,7 @@ def render_top_scoreboard():
         rB = Math.max(0, rB - 1);
         const m = String(Math.floor(rB/60)).padStart(2,'0');
         const s = String(rB%60).padStart(2,'0');
-        penB.textContent = m + ':' + s;
+        penB.textContent = (rB>0? m + ':' + s : '—');
         if (rB === 0){ try{ beep.play(); }catch(e){} }
       }
       if (window.__top_penB) clearInterval(window.__top_penB);
@@ -256,7 +278,7 @@ def render_top_scoreboard():
         startEpoch=json.dumps(start_epoch),
         restA=int(restA), restB=int(restB)
     )
-    components.html(html, height=120)
+    components.html(html, height=140)
 
     # Botões (toggle Play/Pause + Zerar)
     c1, c2 = st.columns([1,1])
@@ -270,10 +292,6 @@ def render_top_scoreboard():
     with c2:
         if st.button("🔁 Zerar", key="top_reset"):
             zerar(); st.rerun()
-
-# Render do placar (acima das abas)
-render_top_scoreboard()
-
 # =====================================================
 # 🧭 ABAS
 # =====================================================

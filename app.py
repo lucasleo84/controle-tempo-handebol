@@ -11,7 +11,7 @@ st.set_page_config(page_title="Controle de Tempo Handebol", page_icon="⏱", lay
 # =====================================================
 def _init_globals():
     if "equipes" not in st.session_state:
-        st.session_state["equipes"] = {"A": [], "B": []}  # {"numero", "estado", "elegivel", "exclusoes"}
+        st.session_state["equipes"] = {"A": [], "B": []}  # {"numero","estado","elegivel","exclusoes"}
     if "cores" not in st.session_state:
         st.session_state["cores"] = {"A": "#00AEEF", "B": "#00D1C7"}
     if "nome_A" not in st.session_state:
@@ -28,7 +28,6 @@ def _init_globals():
         st.session_state["cronometro"] = 0.0
     if "periodo" not in st.session_state:
         st.session_state["periodo"] = "1º Tempo"
-    # marco de início lógico do período atual (em segundos do crono principal)
     if "period_start_elapsed" not in st.session_state:
         st.session_state["period_start_elapsed"] = 0.0
 
@@ -37,7 +36,7 @@ def _init_globals():
 
     # penalidades 2'
     if "penalties" not in st.session_state:
-        st.session_state["penalties"] = {"A": [], "B": []}  # {numero, start, end, consumido}
+        st.session_state["penalties"] = {"A": [], "B": []}  # {numero,start,end,consumido}
 
     # estatísticas (segundos)
     if "stats" not in st.session_state:
@@ -87,6 +86,7 @@ def _parse_mmss(txt: str) -> int | None:
 # =====================================================
 if "act" in st.query_params:
     a = st.query_params["act"]
+
     def iniciar():
         if not st.session_state["iniciado"]:
             st.session_state["iniciado"] = True
@@ -101,6 +101,7 @@ if "act" in st.query_params:
         st.session_state["cronometro"] = 0.0
         st.session_state["ultimo_tick"] = time.time()
         st.session_state["period_start_elapsed"] = 0.0
+
     if a == "toggle":
         if st.session_state["iniciado"]:
             pausar()
@@ -108,7 +109,7 @@ if "act" in st.query_params:
             iniciar()
     elif a == "reset":
         zerar()
-    # limpa o parâmetro e reroda
+
     del st.query_params["act"]
     st.rerun()
 
@@ -172,8 +173,7 @@ def render_top_scoreboard():
     nomeA = get_team_name("A")
     nomeB = get_team_name("B")
 
-    header_h = 156  # padding para as abas
-
+    header_h = 156
     lbl = "⏸ Pausar" if iniciado else "▶️ Iniciar"
 
     html = f"""
@@ -194,15 +194,12 @@ def render_top_scoreboard():
           style = P.createElement('style');
           style.id = '__overlay_clock_css';
           style.textContent = `
-            #__overlay_clock {{
-              position: fixed; left: 0; right: 0; top: 0; z-index: 999999;
-            }}
+            #__overlay_clock {{ position: fixed; left: 0; right: 0; top: 0; z-index: 999999; }}
             .ol-inner {{ margin: 0 auto; max-width: 1200px; padding: 8px 12px; }}
             .ol-card  {{ background: linear-gradient(180deg,#0a0a0a 0%, #0e0e0e 100%);
                         border-bottom: 2px solid #222; border-radius: 0 0 14px 14px;
                         box-shadow: 0 8px 18px rgba(0,0,0,.35); padding: 10px 14px 16px; }}
-            .ol-grid  {{ display: grid; grid-template-columns: 350px auto 350px;
-                        align-items: center; gap: 16px; }}
+            .ol-grid  {{ display: grid; grid-template-columns: 350px auto 350px; align-items: center; gap: 16px; }}
             .ol-side  {{ display:flex; flex-direction:column; gap:8px; }}
             .ol-right {{ align-items:flex-end; }}
             .ol-team  {{ color:#fff; font-weight:800; padding:8px 14px; border-radius:12px; font-size:16px;
@@ -251,11 +248,11 @@ def render_top_scoreboard():
         const me = document.currentScript && document.currentScript.parentElement;
         if (me) me.style.display = 'none';
 
-        // === Ações (alteram querystring “act” e deixam o Streamlit tratar) ===
+        // === Ações ===
         function doAct(a){{
           const u = new URL(P.location.href);
           u.searchParams.set('act', a);
-          P.defaultView.location.href = u.toString();  // navega (Streamlit reroda)
+          P.defaultView.location.href = u.toString();
         }}
         const btnT = P.getElementById('__btn_toggle');
         const btnR = P.getElementById('__btn_reset');
@@ -361,9 +358,7 @@ with abas[0]:
     for eq, col in zip(["A", "B"], [colA, colB]):
         with col:
             st.markdown(f"### {get_team_name(eq)}")
-            # sem value= para não “voltar” o nome ao salvar a outra equipe
-            st.text_input(f"Nome da equipe {eq}", key=f"nome_{eq}")
-
+            st.text_input(f"Nome da equipe {eq}", key=f"nome_{eq}")  # sem value=
             qtd_default = len(st.session_state["equipes"][eq]) or 7
             qtd = st.number_input(f"Quantidade de jogadores ({eq})",
                                   min_value=1, max_value=20, step=1,
@@ -394,16 +389,18 @@ with abas[0]:
                 st.success(f"Equipe {eq} salva com {len(numeros)} jogadores.")
 
 # =====================================================
-# ABA 2 — TITULARES (opcional + correção retroativa)
+# ABA 2 — TITULARES (opcional + correção retroativa 100%)
 # =====================================================
 with abas[1]:
     st.subheader("Definir Titulares (opcional; corrige retroativamente o período atual)")
+
     for eq in ["A", "B"]:
         st.markdown(f"### {get_team_name(eq)}")
         jogadores = st.session_state["equipes"][eq]
         if not jogadores:
             st.info(f"Cadastre primeiro {get_team_name(eq)} na aba anterior.")
             continue
+
         numeros = [j["numero"] for j in jogadores]
         titulares_sel = st.multiselect(
             "Selecione quem está/esteve em quadra desde o início do período",
@@ -411,22 +408,40 @@ with abas[1]:
             default=[j["numero"] for j in jogadores if j.get("estado") == "jogando"],
             key=f"titulares_sel_{eq}",
         )
+
         if st.button(f"Aplicar titulares ({eq})", key=f"registrar_tit_{eq}"):
+            # tempo decorrido do período
             elapsed_period = max(0.0, tempo_logico_atual() - st.session_state["period_start_elapsed"])
             jog_key = "jogado_1t" if st.session_state["periodo"] == "1º Tempo" else "jogado_2t"
             sel = set(map(int, titulares_sel))
+
             for j in st.session_state["equipes"][eq]:
                 num = int(j["numero"])
                 s = _ensure_player_stats(eq, num)
+
+                # ignora quem está inelegível no momento
+                if j.get("estado") in ("excluido", "expulso"):
+                    continue
+
                 if num in sel:
-                    transf = min(s["banco"], elapsed_period)
-                    s["banco"] -= transf
-                    s[jog_key] += transf
+                    # >>> NOVO: garante que TODO o tempo do período seja jogado
+                    desired = elapsed_period
+                    cur     = s[jog_key]
+                    if desired > cur:
+                        delta = desired - cur
+                        s[jog_key] += delta
+                        s["banco"] = max(0.0, s["banco"] - delta)
+                    # estado em quadra
                     j["estado"] = "jogando"; j["elegivel"] = True
                 else:
-                    if j.get("estado") not in ("excluido", "expulso"):
-                        j["estado"] = "banco"; j["elegivel"] = True
-            st.success("Titulares aplicados e correção retroativa realizada.")
+                    # >>> NOVO: garante que não-titulares tenham 0 jogado no período
+                    cur = s[jog_key]
+                    if cur > 0:
+                        s["banco"] += cur
+                        s[jog_key] = 0.0
+                    j["estado"] = "banco"; j["elegivel"] = True
+
+            st.success("Titulares aplicados. Correção retroativa foi 100% realizada.")
 
 # =====================================================
 # ABA 3 — CONTROLE DO JOGO

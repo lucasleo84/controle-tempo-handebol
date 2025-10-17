@@ -9,17 +9,24 @@ st.set_page_config(page_title="Controle de Tempo Handebol", page_icon="⏱", lay
 # =====================================================
 # 🔧 ESTADO GLOBAL / HELPERS BÁSICOS
 # =====================================================
+
 def _init_globals():
+    """Inicializa todo estado global usado no app (idempotente)."""
+    # Estrutura das equipes e metadados
     if "equipes" not in st.session_state:
-        st.session_state["equipes"] = {"A": [], "B": []}
+        st.session_state["equipes"] = {"A": [], "B": []}  # cada item: {"numero", "estado", "elegivel", "exclusoes"}
     if "cores" not in st.session_state:
         st.session_state["cores"] = {"A": "#00AEEF", "B": "#EC008C"}
     if "nome_A" not in st.session_state:
         st.session_state["nome_A"] = "Equipe A"
     if "nome_B" not in st.session_state:
         st.session_state["nome_B"] = "Equipe B"
+
+    # Controle de titulares
     if "titulares_definidos" not in st.session_state:
         st.session_state["titulares_definidos"] = {"A": False, "B": False}
+
+    # Cronômetro principal
     if "iniciado" not in st.session_state:
         st.session_state["iniciado"] = False
     if "ultimo_tick" not in st.session_state:
@@ -30,56 +37,79 @@ def _init_globals():
         st.session_state["periodo"] = "1º Tempo"
     if "invert_lados" not in st.session_state:
         st.session_state["invert_lados"] = False
+
+    # Penalidades 2' (exclusões)
     if "penalties" not in st.session_state:
-        # lista por equipe: [{numero, start, end, consumido}]
+        # por equipe: lista de dicts {numero:int, start:float(elapsed), end:float(elapsed), consumido:bool}
         st.session_state["penalties"] = {"A": [], "B": []}
+
+    # Estatísticas de tempo (segundos)
     if "stats" not in st.session_state:
+        # por equipe: num -> {"jogado_1t":0.0, "jogado_2t":0.0, "banco":0.0, "doismin":0.0}
         st.session_state["stats"] = {"A": {}, "B": {}}
 
-_init_globals()
-
 def get_team_name(eq: str) -> str:
+    """Nome configurado da equipe, com fallback."""
     return st.session_state.get(f"nome_{eq}") or f"Equipe {eq}"
 
 def atualizar_estado(eq: str, numero: int, novo_estado: str) -> bool:
+    """
+    Atualiza 'estado' de um jogador na equipe:
+      estados possíveis: "jogando", "banco", "excluido", "expulso"
+    Retorna True se encontrou e atualizou.
+    """
     for j in st.session_state["equipes"][eq]:
         if int(j["numero"]) == int(numero):
             j["estado"] = novo_estado
             return True
     return False
 
-def jogadores_por_estado(eq: str, estado: str):
+def jogadores_por_estado(eq: str, estado: str) -> list[int]:
+    """Lista números (int) dos jogadores da equipe em um determinado estado e elegíveis."""
     return [
         int(j["numero"])
         for j in st.session_state["equipes"][eq]
         if j.get("elegivel", True) and j.get("estado") == estado
     ]
 
-def elenco(eq: str):
+def elenco(eq: str) -> list[int]:
+    """Lista números (int) de todos os jogadores elegíveis da equipe (independente do estado)."""
     return [
         int(j["numero"])
         for j in st.session_state["equipes"][eq]
         if j.get("elegivel", True)
     ]
 
-def _ensure_player_stats(eq: str, numero: int):
+def _ensure_player_stats(eq: str, numero: int) -> dict:
+    """Garante o dicionário de stats do jogador e o retorna (em segundos)."""
     return st.session_state["stats"][eq].setdefault(int(numero), {
         "jogado_1t": 0.0, "jogado_2t": 0.0, "banco": 0.0, "doismin": 0.0
     })
 
 def tempo_logico_atual() -> float:
-    if st.session_state["iniciado"]:
+    """
+    Retorna o 'elapsed' lógico do cronômetro principal, em segundos:
+      - se rodando: cronometro + (agora - ultimo_tick)
+      - se pausado: cronometro
+    """
+    if st.session_state.get("iniciado"):
         return st.session_state["cronometro"] + (time.time() - st.session_state["ultimo_tick"])
     return st.session_state["cronometro"]
 
 def _parse_mmss(txt: str) -> int | None:
+    """Converte 'MM:SS' -> segundos (int). Retorna None se formato inválido."""
     try:
         mm, ss = txt.strip().split(":")
         m = int(mm); s = int(ss)
-        if m < 0 or s < 0 or s >= 60: return None
-        return m*60 + s
+        if m < 0 or s < 0 or s >= 60:
+            return None
+        return m * 60 + s
     except Exception:
         return None
+
+# inicializa o estado global (idempotente)
+_init_globals()
+
 
 # =====================================================
 # ⏱️ CRONÔMETRO / PENALIDADES (REGISTRO)

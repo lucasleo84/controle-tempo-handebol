@@ -169,167 +169,176 @@ def _penalidade_top(eq: str, agora_elapsed: float):
 # =====================================================
 
 def render_top_scoreboard():
-    # CSS do placar (cabeçalho fixo)
-    st.markdown("""
-    <style>
-      .top-sticky {
-        position: sticky; top: 0; z-index: 10000;
-        background: linear-gradient(180deg, #0a0a0a 0%, #0e0e0e 100%);
-        padding: 12px 14px 10px; border-bottom: 2px solid #222;
-        box-shadow: 0 6px 12px rgba(0,0,0,.35);
-      }
-      .placar-grid {
-        display: grid;
-        grid-template-columns: 1fr auto 1fr;
-        align-items: center; gap: 16px;
-      }
-      .side-box { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
-      .side-box.right { align-items: flex-end; }
-      .team-tag {
-        color: #fff; font-weight: 800; padding: 6px 10px; border-radius: 10px; font-size: 15px;
-        letter-spacing: .3px; box-shadow: 0 2px 6px rgba(0,0,0,.35);
-      }
-      .main-clock {
-        font-family: 'Courier New', monospace;
-        font-size: 72px; line-height: 1; font-weight: 900;
-        color: #FFD700; background: #000; padding: 10px 24px; border-radius: 14px;
-        letter-spacing: 4px;
-        box-shadow: 0 0 22px rgba(255,215,0,.35), inset 0 0 18px rgba(255,255,255,.06);
-        border: 1px solid #333; text-align:center; min-width: 320px;
-        text-shadow: 0 0 10px rgba(255,215,0,.45);
-      }
-      .mini2 {
-        font-family: 'Courier New', monospace;
-        font-size: 26px; font-weight: 800;
-        color: #FF5555; background:#111; padding: 6px 12px; border-radius: 10px;
-        text-shadow: 0 0 6px rgba(255,0,0,.6);
-        border: 1px solid #333; min-width: 120px; text-align:center;
-        box-shadow: inset 0 0 10px rgba(255,255,255,.04);
-      }
-      .mini2.muted { color: #888; text-shadow: none; }
-      .controls-row { margin-top: 8px; display:flex; gap:10px; justify-content:center; }
-      .stButton > button {
-        border-radius: 10px; padding: 6px 14px; border: 1px solid #333;
-        background: #161616; color: #eee; font-weight: 700;
-      }
-      .stButton > button:hover { background:#1e1e1e; }
-    </style>
-    """, unsafe_allow_html=True)
-
-    iniciado_js = "true" if st.session_state["iniciado"] else "false"
+    """Placar fixo no topo (overlay no documento-pai) + timers de 2' dos lados."""
+    # dados para o relógio
+    iniciado = bool(st.session_state["iniciado"])
     base_elapsed = float(st.session_state["cronometro"])
-    start_epoch = float(st.session_state["ultimo_tick"]) if st.session_state["iniciado"] else None
+    start_epoch = float(st.session_state["ultimo_tick"]) if iniciado else None
 
     # 2' — menor restante de cada lado
     agora = tempo_logico_atual()
     numA, restA = _penalidade_top("A", agora)
     numB, restB = _penalidade_top("B", agora)
 
-    corA = st.session_state["cores"].get("A", "#00AEEF")
-    corB = st.session_state["cores"].get("B", "#EC008C")
+    # nomes e cores
+    corA  = st.session_state["cores"].get("A", "#00AEEF")
+    corB  = st.session_state["cores"].get("B", "#EC008C")
     nomeA = get_team_name("A")
     nomeB = get_team_name("B")
 
-    html_tpl = Template("""
-    <div class="top-sticky">
-      <div class="placar-grid">
-        <div class="side-box">
-          <div class="team-tag" style="background: $corA;">$nomeA</div>
-          <div id="penA" class="mini2 $muteA">$penA_text</div>
-        </div>
-        <div id="mainclock" class="main-clock">00:00</div>
-        <div class="side-box right">
-          <div class="team-tag" style="background: $corB;">$nomeB</div>
-          <div id="penB" class="mini2 $muteB">$penB_text</div>
-        </div>
-      </div>
-    </div>
+    # HTML/JS que cria/atualiza um overlay FIXO no parent
+    html = f"""
+    <div></div>
     <script>
-    (function(){
-      // clock principal
-      const el = document.getElementById('mainclock');
-      const iniciado = $iniciado;
-      const baseElapsed = $baseElapsed;
-      const startEpoch = $startEpoch;
-      function fmt(sec){
-        sec = Math.max(0, Math.floor(sec));
-        const m = Math.floor(sec/60), s = sec % 60;
-        return (m<10?'0':'')+m+':' + (s<10?'0':'')+s;
-      }
-      function tickMain(){
-        let elapsed = baseElapsed;
-        if (iniciado && startEpoch){
-          const now = Date.now()/1000;
-          elapsed = baseElapsed + (now - startEpoch);
-        }
-        el.textContent = fmt(elapsed);
-      }
-      tickMain();
-      if (window.__top_mainclock) clearInterval(window.__top_mainclock);
-      window.__top_mainclock = setInterval(tickMain, 250);
+      (function(){{
+        const P = window.parent && window.parent.document ? window.parent.document : document;
 
-      // 2' A
-      let rA = $restA;
-      const penA = document.getElementById('penA');
-      const beep = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
-      function tickA(){
-        if (!penA) return;
-        if (rA <= 0) return;
-        rA = Math.max(0, rA - 1);
-        const m = String(Math.floor(rA/60)).padStart(2,'0');
-        const s = String(rA%60).padStart(2,'0');
-        penA.textContent = (rA>0? m + ':' + s : '—');
-        if (rA === 0){ try{ beep.play(); }catch(e){} }
-      }
-      if (window.__top_penA) clearInterval(window.__top_penA);
-      if (rA > 0) window.__top_penA = setInterval(tickA, 1000);
+        // cria ou obtém o overlay
+        let wrap = P.getElementById('__overlay_clock');
+        if (!wrap) {{
+          wrap = P.createElement('div');
+          wrap.id = '__overlay_clock';
+          P.body.appendChild(wrap);
+        }}
 
-      // 2' B
-      let rB = $restB;
-      const penB = document.getElementById('penB');
-      function tickB(){
-        if (!penB) return;
-        if (rB <= 0) return;
-        rB = Math.max(0, rB - 1);
-        const m = String(Math.floor(rB/60)).padStart(2,'0');
-        const s = String(rB%60).padStart(2,'0');
-        penB.textContent = (rB>0? m + ':' + s : '—');
-        if (rB === 0){ try{ beep.play(); }catch(e){} }
-      }
-      if (window.__top_penB) clearInterval(window.__top_penB);
-      if (rB > 0) window.__top_penB = setInterval(tickB, 1000);
-    })();
+        // CSS global do overlay
+        let style = P.getElementById('__overlay_clock_css');
+        if (!style) {{
+          style = P.createElement('style');
+          style.id = '__overlay_clock_css';
+          style.textContent = `
+            #__overlay_clock {{
+              position: fixed; left: 0; right: 0; top: 0;
+              z-index: 999999;
+              pointer-events: none; /* deixa clicar nos elementos da página abaixo */
+            }}
+            .ol-inner {{
+              margin: 0 auto; max-width: 1200px;
+              padding: 8px 12px;
+            }}
+            .ol-card {{
+              background: linear-gradient(180deg,#0a0a0a 0%, #0e0e0e 100%);
+              border-bottom: 2px solid #222;
+              border-radius: 0 0 14px 14px;
+              box-shadow: 0 8px 18px rgba(0,0,0,.35);
+              padding: 10px 14px 12px;
+            }}
+            .ol-grid {{
+              display: grid;
+              grid-template-columns: 1fr auto 1fr;
+              align-items: center;
+              gap: 16px;
+            }}
+            .ol-side {{ display:flex; flex-direction:column; gap:6px; }}
+            .ol-right {{ align-items:flex-end; }}
+            .ol-team {{
+              color: #fff; font-weight: 800; padding: 6px 10px; border-radius: 10px; font-size: 15px;
+              letter-spacing: .3px; box-shadow: 0 2px 6px rgba(0,0,0,.35);
+            }}
+            .ol-clock {{
+              font-family: 'Courier New', monospace;
+              font-size: 72px; line-height: 1; font-weight: 900;
+              color: #FFD700; background: #000; padding: 10px 24px; border-radius: 14px;
+              letter-spacing: 4px; text-align:center; min-width: 340px;
+              border: 1px solid #333;
+              box-shadow: 0 0 22px rgba(255,215,0,.35), inset 0 0 18px rgba(255,255,255,.06);
+              text-shadow: 0 0 10px rgba(255,215,0,.45);
+            }}
+            .ol-mini {{
+              font-family: 'Courier New', monospace;
+              font-size: 26px; font-weight: 800; text-align:center; min-width: 135px;
+              color: #FF5555; background:#111; padding: 6px 12px; border-radius: 10px;
+              border: 1px solid #333; box-shadow: inset 0 0 10px rgba(255,255,255,.04);
+              text-shadow: 0 0 6px rgba(255,0,0,.6);
+            }}
+            .ol-muted {{ color: #888; text-shadow: none; }}
+          `;
+          P.head.appendChild(style);
+        }}
+
+        // estrutura do overlay
+        wrap.innerHTML = `
+          <div class="ol-inner">
+            <div class="ol-card">
+              <div class="ol-grid">
+                <div class="ol-side">
+                  <div class="ol-team" style="background:{corA};">{nomeA}</div>
+                  <div id="__ol_penA" class="ol-mini">{"#" + String({numA}) + " – " + "{(restA//60):02d}:{(restA%60):02d}" if numA is not None else "—"}</div>
+                </div>
+                <div id="__ol_clock" class="ol-clock">00:00</div>
+                <div class="ol-side ol-right">
+                  <div class="ol-team" style="background:{corB};">{nomeB}</div>
+                  <div id="__ol_penB" class="ol-mini">{"#" + String({numB}) + " – " + "{(restB//60):02d}:{(restB%60):02d}" if numB is not None else "—"}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        // remove a barra branca vazia do componente
+        const me = document.currentScript && document.currentScript.parentElement;
+        if (me) me.style.display = 'none';
+
+        // relógio principal (suave)
+        const iniciado   = {str(iniciado).lower()};
+        const baseElapsed= {base_elapsed};
+        const startEpoch = {json.dumps(start_epoch)};
+        const clockEl = P.getElementById('__ol_clock');
+
+        function fmt(sec){{
+          sec = Math.max(0, Math.floor(sec));
+          const m = Math.floor(sec/60), s = sec % 60;
+          return (m<10?'0':'')+m+':' + (s<10?'0':'')+s;
+        }}
+
+        function tickClock(){{
+          let elapsed = baseElapsed;
+          if (iniciado && startEpoch){{
+            const now = Date.now()/1000;
+            elapsed = baseElapsed + (now - startEpoch);
+          }}
+          if (clockEl) clockEl.textContent = fmt(elapsed);
+          window.__ol_clockRAF = window.requestAnimationFrame(tickClock);
+        }}
+
+        if (window.__ol_clockRAF) window.cancelAnimationFrame(window.__ol_clockRAF);
+        window.__ol_clockRAF = window.requestAnimationFrame(tickClock);
+
+        // timers 2'
+        const penAEl = P.getElementById('__ol_penA');
+        const penBEl = P.getElementById('__ol_penB');
+        const beep = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
+
+        let rA = {int(restA)};
+        let rB = {int(restB)};
+
+        function tickPenA(){{
+          if (!penAEl || rA<=0) return;
+          rA = Math.max(0, rA-1);
+          const m = String(Math.floor(rA/60)).padStart(2,'0');
+          const s = String(rA%60).padStart(2,'0');
+          penAEl.textContent = rA>0 ? m+':'+s : '—';
+          if (rA===0) {{ try{{ beep.play(); }}catch(e){{}} }}
+        }}
+        function tickPenB(){{
+          if (!penBEl || rB<=0) return;
+          rB = Math.max(0, rB-1);
+          const m = String(Math.floor(rB/60)).padStart(2,'0');
+          const s = String(rB%60).padStart(2,'0');
+          penBEl.textContent = rB>0 ? m+':'+s : '—';
+          if (rB===0) {{ try{{ beep.play(); }}catch(e){{}} }}
+        }}
+
+        if (window.__ol_penA) clearInterval(window.__ol_penA);
+        if (window.__ol_penB) clearInterval(window.__ol_penB);
+        if (rA>0) window.__ol_penA = setInterval(tickPenA, 1000);
+        if (rB>0) window.__ol_penB = setInterval(tickPenB, 1000);
+      }})();
     </script>
-    """)
-    penA_text = f"#{numA} – {restA//60:02d}:{restA%60:02d}" if numA is not None else "—"
-    penB_text = f"#{numB} – {restB//60:02d}:{restB%60:02d}" if numB is not None else "—"
-    muteA = "" if numA is not None else "muted"
-    muteB = "" if numB is not None else "muted"
-    html = html_tpl.substitute(
-        corA=corA, nomeA=nomeA, penA_text=penA_text, muteA=muteA,
-        corB=corB, nomeB=nomeB, penB_text=penB_text, muteB=muteB,
-        iniciado=iniciado_js,
-        baseElapsed=json.dumps(base_elapsed),
-        startEpoch=json.dumps(start_epoch),
-        restA=int(restA), restB=int(restB)
-    )
-    components.html(html, height=140)
+    """
 
-    # Botões (toggle Play/Pause + Zerar)
-    c1, c2 = st.columns([1,1])
-    with c1:
-        if st.session_state["iniciado"]:
-            if st.button("⏸️ Pausar", key="top_pause"):
-                pausar(); st.rerun()
-        else:
-            if st.button("▶️ Iniciar", key="top_play"):
-                iniciar(); st.rerun()
-    with c2:
-        if st.button("🔁 Zerar", key="top_reset"):
-            zerar(); st.rerun()
-
-# Render do placar (acima das abas)
-render_top_scoreboard()
+    # injeta no DOM (sem ocupar espaço no fluxo: altura 0)
+    components.html(html, height=0)
 
 # =====================================================
 # 🧭 ABAS

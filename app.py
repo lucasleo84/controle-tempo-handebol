@@ -605,9 +605,10 @@ with abas[2]:
 # =====================================================
 # ABA 4 — VISUALIZAÇÃO DE DADOS (auto opcional)
 # =====================================================
-with abas[3]]:
+with abas[3]:
     import pandas as pd
 
+    # --------- Estado local desta aba ----------
     if "last_accum" not in st.session_state:
         st.session_state["last_accum"] = time.time()
     if "viz_auto" not in st.session_state:
@@ -615,33 +616,53 @@ with abas[3]]:
     if "viz_interval" not in st.session_state:
         st.session_state["viz_interval"] = 1.0
 
+    # --------- Acúmulo contínuo de tempo (apenas quando esta aba está aberta) ----------
     def _accumulate_time_tick():
+        """
+        Converte o estado atual (jogando/banco/excluido) em segundos acumulados.
+        É chamado em todo render desta aba; se 'viz_auto' estiver ativo, roda em loop com st.rerun().
+        """
         now = time.time()
         dt = max(0.0, now - st.session_state["last_accum"])
         st.session_state["last_accum"] = now
+
         jogado_key = "jogado_1t" if st.session_state["periodo"] == "1º Tempo" else "jogado_2t"
+
+        # Garante dicionários
+        if "stats" not in st.session_state:
+            st.session_state["stats"] = {"A": {}, "B": {}}
+
         for eq in ["A", "B"]:
             for j in st.session_state["equipes"].get(eq, []):
                 num = int(j["numero"])
                 s = _ensure_player_stats(eq, num)
                 estado = j.get("estado", "banco")
+
                 if estado == "jogando":
                     s[jogado_key] += dt
                 elif estado == "banco":
                     s["banco"] += dt
                 elif estado == "excluido":
                     s["doismin"] += dt
+                # 'expulso' e inelegível: não acumula nada adicional
 
+    # --------- Cálculo de 2' transcorridos (apoiado nas penalidades registradas) ----------
     def _doismin_por_jogador_agora(eq: str, numero: int, agora_elapsed: float) -> float:
+        """
+        Soma, em minutos, o tempo já cumprido em 2' para esse jogador até o instante atual lógico.
+        Usa st.session_state["penalties"][eq] com pares start/end.
+        """
         total_sec = 0.0
         for p in st.session_state.get("penalties", {}).get(eq, []):
-            if int(p["numero"]) != int(numero): continue
+            if int(p["numero"]) != int(numero):
+                continue
             a, b = float(p["start"]), float(p["end"])
             cumprido = max(0.0, min(agora_elapsed, b) - a)
             total_sec += cumprido
         return total_sec / 60.0
 
-    def _stats_to_dataframe():
+    # --------- Monta DataFrame para exibição e exportação ----------
+    def _stats_to_dataframe() -> pd.DataFrame:
         rows = []
         for eq in ["A", "B"]:
             cor = st.session_state["cores"].get(eq, "#333")
@@ -649,13 +670,19 @@ with abas[3]]:
                 num = int(j["numero"])
                 est = j.get("estado", "banco")
                 exc = j.get("exclusoes", 0)
-                s = st.session_state["stats"][eq].get(num, {"jogado_1t":0, "jogado_2t":0, "banco":0, "doismin":0})
+
+                s = st.session_state["stats"][eq].get(
+                    num, {"jogado_1t": 0.0, "jogado_2t": 0.0, "banco": 0.0, "doismin": 0.0}
+                )
+
                 j1 = s["jogado_1t"] / 60.0
                 j2 = s["jogado_2t"] / 60.0
                 jog_total = j1 + j2
                 banco_min = s["banco"] / 60.0
+
                 agora_elapsed = tempo_logico_atual()
                 dois_min = round(_doismin_por_jogador_agora(eq, num, agora_elapsed), 1)
+
                 rows.append({
                     "Equipe": eq,
                     "Número": num,
@@ -668,8 +695,14 @@ with abas[3]]:
                     "2 min (min)": round(dois_min, 1),
                     "CorEquipe": cor,
                 })
-        return pd.DataFrame(rows).sort_values(["Equipe", "Número"]) if rows else pd.DataFrame()
 
+        if not rows:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(rows).sort_values(["Equipe", "Número"])
+        return df
+
+    # --------- UI da aba ----------
     st.subheader("Visualização de Dados")
 
     cauto1, cauto2 = st.columns([1, 1])
@@ -686,15 +719,20 @@ with abas[3]]:
             help="Intervalo da atualização automática desta aba."
         )
 
+    # Acumula o tick desta renderização
     _accumulate_time_tick()
 
+    # Gera DF e apresenta
     df = _stats_to_dataframe()
     if df.empty:
         st.info("Sem dados ainda. Cadastre equipes, defina titulares e inicie o controle do jogo.")
     else:
+        # Por equipe
         for eq in ["A", "B"]:
             sub = df[df["Equipe"] == eq].copy()
-            if sub.empty: continue
+            if sub.empty:
+                continue
+
             cor = sub["CorEquipe"].iloc[0]
             st.markdown(
                 f"<div style='background:{cor};color:#fff;padding:6px 10px;border-radius:8px;font-weight:700;margin-top:8px;'>{get_team_name(eq)}</div>",
@@ -702,13 +740,27 @@ with abas[3]]:
             )
             st.dataframe(sub.drop(columns=["CorEquipe"]), use_container_width=True)
 
+            # (Opcional) gráfico de barras do tempo jogado total
+            try:
+                chart_df = sub[["Número", "Jogado Total (min)"]].set_index("Número")
+                st.bar_chart(chart_df, use_container_width=True)
+            except Exception:
+                pass
+
         st.markdown("---")
         st.markdown("#### Relatório combinado")
         st.dataframe(df.drop(columns=["CorEquipe"]), use_container_width=True)
 
+        # Exportar CSV
         csv = df.drop(columns=["CorEquipe"]).to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Baixar CSV (todas as equipes)", data=csv, file_name="relatorio_tempos.csv", mime="text/csv")
+        st.download_button(
+            "📥 Baixar CSV (todas as equipes)",
+            data=csv,
+            file_name="relatorio_tempos.csv",
+            mime="text/csv"
+        )
 
+    # Auto refresh desta aba (sem travar as outras)
     if st.session_state["viz_auto"]:
         time.sleep(float(st.session_state["viz_interval"]))
         st.rerun()
